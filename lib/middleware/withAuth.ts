@@ -13,7 +13,7 @@ type AuthenticatedRequest = NextRequest & {
 };
 
 type RouteContext = {
-  params: Record<string, string | string[]>;
+  params: Promise<any>;
 };
 
 type Handler = (
