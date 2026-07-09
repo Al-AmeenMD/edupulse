@@ -1,0 +1,8 @@
+name: edupulse
+variables:
+  - name: base_url
+    value: http://localhost:3000
+  - name: token
+    value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJjbW52ejFnczAwMDAwZ2p1ancxZDU4eGZ4Iiwicm9sZSI6IlNVUEVSX0FETUlOIiwic2Nob29sSWQiOm51bGwsImlhdCI6MTc4MzYwMDIwMCwiZXhwIjoxNzg0MjA1MDAwfQ.gdx7mp528Wb38znmwShvY4JAddzBJO8luq_KO1r5wI0
+  - name: admin_token
+    value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJjbW54Z2I1d2kwMDAwNTF1ajM5dzhxZW9lIiwicm9sZSI6IlNDSE9PTF9BRE1JTiIsInNjaG9vbElkIjoiY21udzB3aXZmMDAwMGJxdWp5ZGVua2JkaCIsImlhdCI6MTc4MzYwMjY1OSwiZXhwIjoxNzg0MjA3NDU5fQ.aUs7NAXgKmOn2UfMLtbl7H8YzEKn7cXbiort2jrVmeg

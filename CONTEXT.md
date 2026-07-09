@@ -7,15 +7,61 @@ Project folder: `edupulse/`
 
 ---
 
-## Stack
-- **Framework:** Next.js 14 (App Router), TypeScript
-- **ORM:** Prisma (with directUrl configured for Supabase)
+## Stack (Actual — Verified by Codebase Analysis)
+- **Framework:** Next.js 16.2.3 (App Router), TypeScript
+- **React:** 19.2.4
+- **ORM:** Prisma 7.7.0 with `@prisma/adapter-pg` (driver adapter pattern)
 - **Database:** PostgreSQL (Supabase — Session Pooler, eu-west-1)
-- **Auth:** JWT (bcryptjs + jsonwebtoken) — custom, no NextAuth
-- **Styling:** Tailwind CSS
-- **File Storage:** Cloudinary
-- **Email:** Resend
+- **Auth:** JWT (bcryptjs 3.0.3 + jsonwebtoken 9.0.3) — custom, no NextAuth
+- **Styling:** Tailwind CSS v4 + @tailwindcss/postcss
+- **File Storage:** Cloudinary (not yet integrated)
+- **Email:** Resend (not yet integrated)
 - **Deployment:** Vercel (frontend) + Supabase (DB)
+
+---
+
+## Critical Prisma Note
+This project uses **Prisma 7 with the driver adapter pattern** — NOT the old url/directUrl in schema.prisma.
+
+### prisma/schema.prisma datasource (correct)
+```prisma
+datasource db {
+  provider = "postgresql"
+}
+```
+
+### prisma.config.ts (handles connection)
+```typescript
+import { defineConfig } from "prisma/config";
+
+export default defineConfig({
+  earlyAccess: true,
+  schema: "prisma/schema.prisma",
+});
+```
+
+### lib/prisma.ts (uses pg Pool adapter)
+```typescript
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { Pool } from "pg";
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+});
+
+const adapter = new PrismaPg(pool);
+
+const globalForPrisma = globalThis as unknown as {
+  prisma: PrismaClient | undefined;
+};
+
+export const prisma =
+  globalForPrisma.prisma ?? new PrismaClient({ adapter, log: ["error"] });
+
+if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+```
 
 ---
 
@@ -77,6 +123,8 @@ return NextResponse.json({ error: "Internal server error" }, { status: 500 });
 - Use Prisma's `select` to whitelist returned fields
 - All money/amount fields use `Decimal` type in Prisma
 - Use Prisma transactions when creating related records together
+- Always `.trim()` and `.toLowerCase()` on user string inputs
+- schoolId ALWAYS from JWT token, never from request body
 
 ---
 
@@ -119,11 +167,14 @@ edupulse/
 ├── prisma/
 │   ├── schema.prisma
 │   └── seed.ts
+├── prisma.config.ts
 ├── types/
 │   └── index.ts
 ├── constants/
 │   └── index.ts
 ├── hooks/
+│   ├── useAuth.ts
+│   └── useTenant.ts
 └── middleware.ts
 ```
 
@@ -137,9 +188,7 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "postgresql"
 }
 
 model School {
@@ -414,20 +463,6 @@ model Payment {
 
 ## Existing Utility Files
 
-### lib/prisma.ts
-```typescript
-import { PrismaClient } from "@prisma/client";
-
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
-};
-
-export const prisma =
-  globalForPrisma.prisma ?? new PrismaClient({ log: ["error"] });
-
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
-```
-
 ### lib/auth.ts
 ```typescript
 import bcrypt from "bcryptjs";
@@ -492,57 +527,6 @@ export function withAuth(handler: Handler, allowedRoles?: Role[]) {
 }
 ```
 
-### app/api/auth/login/route.ts
-```typescript
-import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { verifyPassword, signToken } from "@/lib/auth";
-
-export async function POST(req: NextRequest) {
-  const { email, password } = await req.json();
-
-  if (!email || !password) {
-    return NextResponse.json(
-      { error: "Email and password are required" },
-      { status: 400 }
-    );
-  }
-
-  const user = await prisma.user.findUnique({ where: { email } });
-
-  if (!user || !(await verifyPassword(password, user.password))) {
-    return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
-  }
-
-  if (!user.isActive) {
-    return NextResponse.json({ error: "Account deactivated" }, { status: 403 });
-  }
-
-  const token = signToken({
-    userId: user.id,
-    role: user.role,
-    schoolId: user.schoolId,
-  });
-
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { lastLoginAt: new Date() },
-  });
-
-  return NextResponse.json({
-    token,
-    user: {
-      id: user.id,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      email: user.email,
-      role: user.role,
-      schoolId: user.schoolId,
-    },
-  });
-}
-```
-
 ---
 
 ## Completed Tasks
@@ -552,16 +536,25 @@ export async function POST(req: NextRequest) {
 - TASK-003: withAuth middleware ✅
 - TASK-004: Login API endpoint ✅
 - TASK-005: Super admin seed script ✅
+- TASK-006: POST + GET /api/schools ✅
+- TASK-007: GET + PATCH + DELETE /api/schools/:id ✅
+- TASK-008: POST + GET /api/schools/:id/admins ✅
+
+---
+
+## Known Bugs to Fix
+- [ ] GET /api/schools/:id returns admins instead of school details
+- [ ] app/page.tsx still shows default Next.js template — redirect to /login
+- [ ] app/layout.tsx metadata still says "Create Next App"
+- [ ] proxy.ts at root is orphaned — delete it
+- [ ] ._* and .DS_Store files should be added to .gitignore
 
 ---
 
 ## Current Sprint
-**Sprint 2 — Super Admin & School Management**
+**Sprint 2 — Super Admin & School Management (Resuming)**
 
 ## Active Tasks
-- TASK-006: POST + GET /api/schools
-- TASK-007: GET + PATCH + DELETE /api/schools/:id
-- TASK-008: POST + GET /api/schools/:id/admins
 - TASK-009: POST + GET /api/teachers
 - TASK-010: POST + GET /api/students
 - TASK-011: POST + GET /api/classes
@@ -569,8 +562,7 @@ export async function POST(req: NextRequest) {
 
 ---
 
-## Super Admin Credentials (for testing)
-- Email: superadmin@sms.com
-- Password: SuperAdmin@123
-- Role: SUPER_ADMIN
-- schoolId: null
+## Test Credentials
+- **Super Admin:** superadmin@sms.com / SuperAdmin@123 (schoolId: null)
+- **School Admin:** admin@greenfield.com / Admin@12345 (schoolId: your-school-id)
+- **School:** Greenfield Academy (save the id for testing)
