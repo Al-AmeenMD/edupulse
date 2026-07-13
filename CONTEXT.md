@@ -149,6 +149,7 @@ edupulse/
 │       │   └── [id]/
 │       │       └── enroll/
 │       ├── attendance/
+│       │   └── summary/
 │       └── fees/
 │           ├── structures/
 │           └── [id]/
@@ -530,39 +531,54 @@ export function withAuth(handler: Handler, allowedRoles?: Role[]) {
 ---
 
 ## Completed Tasks
+
+### Sprint 1 — Foundation ✅
 - TASK-000: Folder structure ✅
 - TASK-001: Prisma client singleton ✅
 - TASK-002: Auth utilities ✅
 - TASK-003: withAuth middleware ✅
 - TASK-004: Login API endpoint ✅
 - TASK-005: Super admin seed script ✅
+
+### Sprint 2 — Super Admin & School Management ✅
 - TASK-006: POST + GET /api/schools ✅
 - TASK-007: GET + PATCH + DELETE /api/schools/:id ✅
 - TASK-008: POST + GET /api/schools/:id/admins ✅
+- TASK-009: POST + GET /api/teachers ✅
+- TASK-010: POST + GET /api/students ✅
+- TASK-011: POST + GET /api/classes ✅
+- TASK-012: POST + DELETE /api/classes/:id/enroll ✅
 
----
-
-## Known Bugs to Fix
-- [ ] GET /api/schools/:id returns admins instead of school details
-- [ ] app/page.tsx still shows default Next.js template — redirect to /login
-- [ ] app/layout.tsx metadata still says "Create Next App"
-- [ ] proxy.ts at root is orphaned — delete it
-- [ ] ._* and .DS_Store files should be added to .gitignore
+### Bugfixes Applied ✅
+- BUGFIX-001: GET /api/schools/:id now returns school details ✅
+- BUGFIX-002: Root page redirects to /login ✅
+- BUGFIX-003: Layout metadata updated to EduPulse branding ✅
+- BUGFIX-004: macOS junk files removed and gitignored ✅
 
 ---
 
 ## Current Sprint
-**Sprint 2 — Super Admin & School Management (Resuming)**
+**Sprint 3 — Attendance & Fees**
 
 ## Active Tasks
-- TASK-009: POST + GET /api/teachers
-- TASK-010: POST + GET /api/students
-- TASK-011: POST + GET /api/classes
-- TASK-012: Enroll/Remove student from class
+- TASK-013: POST + GET /api/attendance
+- TASK-014: GET /api/attendance/summary
+- TASK-015: POST + GET /api/fees/structures
+- TASK-016: POST + GET /api/fees
+- TASK-017: POST + GET /api/fees/:id/payments
+- TASK-018: GET + PATCH /api/fees/:id
 
 ---
 
 ## Test Credentials
 - **Super Admin:** superadmin@sms.com / SuperAdmin@123 (schoolId: null)
-- **School Admin:** admin@greenfield.com / Admin@12345 (schoolId: your-school-id)
-- **School:** Greenfield Academy (save the id for testing)
+- **School Admin:** admin@zenithacademy.com / Admin@12345
+- **Teacher:** ninakabir@zenithacademy.com / Teacher@123
+- **School:** Zenith International Academy
+
+## Known IDs (Zenith Academy)
+- School ID:    cmnw0wivf0000bqujydenkbdh
+- Class ID:     cmrdwsd4u000580v5odkpolrw  (Primary 5A)
+- Student 1:    cmrdk2iei000280v5rgejcicx  (Ahmad Muhammad — STU/2026/001)
+- Student 2:    cmrdk37zk000380v5u4ehelj1  (Amina Bello — STU/2026/002)
+- Teacher ID:   cmrdj45x6000180v5exz4vx4y  (Nina Kabir)
