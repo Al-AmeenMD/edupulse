@@ -25,6 +25,9 @@ model School {
   fees          Fee[]
   feeStructures FeeStructure[]
   subjects      Subject[]
+  questions     Question[]
+  assessments   Assessment[]
+  submissions   Submission[]
 
   @@map("schools")
 }
@@ -111,6 +114,7 @@ model Student {
   classEnrollments ClassEnrollment[]
   attendance       Attendance[]
   fees             Fee[]
+  submissions      Submission[]
 
   @@unique([schoolId, studentId])
   @@map("students")
@@ -273,4 +277,79 @@ model Payment {
   fee        Fee      @relation(fields: [feeId], references: [id])
 
   @@map("payments")
+}
+
+enum AssessmentStatus {
+  DRAFT
+  ACTIVE
+  CLOSED
+}
+
+model Question {
+  id            String   @id @default(cuid())
+  schoolId      String
+  subjectId     String?
+  classId       String?
+  text          String
+  options       Json
+  correctOption String
+  marks         Int      @default(1)
+  createdBy     String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  school              School               @relation(fields: [schoolId], references: [id])
+  assessmentQuestions AssessmentQuestion[]
+
+  @@map("questions")
+}
+
+model Assessment {
+  id          String           @id @default(cuid())
+  schoolId    String
+  classId     String
+  title       String
+  duration    Int
+  startTime   DateTime
+  endTime     DateTime
+  status      AssessmentStatus @default(DRAFT)
+  createdBy   String
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  school              School               @relation(fields: [schoolId], references: [id])
+  assessmentQuestions AssessmentQuestion[]
+  submissions         Submission[]
+
+  @@map("assessments")
+}
+
+model AssessmentQuestion {
+  id           String @id @default(cuid())
+  assessmentId String
+  questionId   String
+  order        Int    @default(0)
+
+  assessment Assessment @relation(fields: [assessmentId], references: [id])
+  question   Question   @relation(fields: [questionId], references: [id])
+
+  @@unique([assessmentId, questionId])
+  @@map("assessment_questions")
+}
+
+model Submission {
+  id           String   @id @default(cuid())
+  assessmentId String
+  studentId    String
+  schoolId     String
+  answers      Json
+  score        Int?
+  submittedAt  DateTime @default(now())
+
+  assessment   Assessment @relation(fields: [assessmentId], references: [id])
+  student      Student    @relation(fields: [studentId], references: [id])
+  school       School     @relation(fields: [schoolId], references: [id])
+
+  @@unique([assessmentId, studentId])
+  @@map("submissions")
 }
