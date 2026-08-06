@@ -121,7 +121,7 @@ return NextResponse.json({ error: "Internal server error" }, { status: 500 });
 - Always wrap DB calls in try/catch
 - Never expose password field in API responses
 - Use Prisma's `select` to whitelist returned fields
-- All money/amount fields use `Decimal` type in Prisma
+- All money/amount fields use `Decimal` type — use `Prisma.Decimal` from `@prisma/client`
 - Use Prisma transactions when creating related records together
 - Always `.trim()` and `.toLowerCase()` on user string inputs
 - schoolId ALWAYS from JWT token, never from request body
@@ -141,13 +141,10 @@ edupulse/
 │       ├── schools/
 │       │   └── [id]/
 │       │       └── admins/
-│       ├── students/
-│       │   └── [id]/
-│       ├── teachers/
-│       │   └── [id]/
+│       ├── students/[id]/
+│       ├── teachers/[id]/
 │       ├── classes/
-│       │   └── [id]/
-│       │       └── enroll/
+│       │   └── [id]/enroll/
 │       ├── attendance/
 │       │   └── summary/
 │       └── fees/
@@ -169,10 +166,8 @@ edupulse/
 │   ├── schema.prisma
 │   └── seed.ts
 ├── prisma.config.ts
-├── types/
-│   └── index.ts
-├── constants/
-│   └── index.ts
+├── types/index.ts
+├── constants/index.ts
 ├── hooks/
 │   ├── useAuth.ts
 │   └── useTenant.ts
@@ -181,7 +176,7 @@ edupulse/
 
 ---
 
-## Prisma Schema (Complete)
+## Prisma Schema (Complete — including CBT v2 tables)
 
 ```prisma
 generator client {
@@ -204,12 +199,16 @@ model School {
   updatedAt     DateTime  @updatedAt
 
   users         User[]
+  teachers      Teacher[]
   students      Student[]
   classes       Class[]
   attendance    Attendance[]
   fees          Fee[]
   feeStructures FeeStructure[]
   subjects      Subject[]
+  questions     Question[]
+  assessments   Assessment[]
+  submissions   Submission[]
 
   @@map("schools")
 }
@@ -266,6 +265,7 @@ model Teacher {
   updatedAt     DateTime  @updatedAt
 
   user            User             @relation(fields: [userId], references: [id])
+  school          School           @relation(fields: [schoolId], references: [id])
   classes         Class[]
   attendance      Attendance[]
   subjectTeachers SubjectTeacher[]
@@ -295,6 +295,7 @@ model Student {
   classEnrollments ClassEnrollment[]
   attendance       Attendance[]
   fees             Fee[]
+  submissions      Submission[]
 
   @@unique([schoolId, studentId])
   @@map("students")
@@ -458,6 +459,83 @@ model Payment {
 
   @@map("payments")
 }
+
+// CBT PLATFORM (v2 — tables exist, APIs not yet built)
+
+enum AssessmentStatus {
+  DRAFT
+  ACTIVE
+  CLOSED
+}
+
+model Question {
+  id            String   @id @default(cuid())
+  schoolId      String
+  subjectId     String?
+  classId       String?
+  text          String
+  options       Json
+  correctOption String
+  marks         Int      @default(1)
+  createdBy     String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  school              School               @relation(fields: [schoolId], references: [id])
+  assessmentQuestions AssessmentQuestion[]
+
+  @@map("questions")
+}
+
+model Assessment {
+  id          String           @id @default(cuid())
+  schoolId    String
+  classId     String
+  title       String
+  duration    Int
+  startTime   DateTime
+  endTime     DateTime
+  status      AssessmentStatus @default(DRAFT)
+  createdBy   String
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  school              School               @relation(fields: [schoolId], references: [id])
+  assessmentQuestions AssessmentQuestion[]
+  submissions         Submission[]
+
+  @@map("assessments")
+}
+
+model AssessmentQuestion {
+  id           String @id @default(cuid())
+  assessmentId String
+  questionId   String
+  order        Int    @default(0)
+
+  assessment Assessment @relation(fields: [assessmentId], references: [id])
+  question   Question   @relation(fields: [questionId], references: [id])
+
+  @@unique([assessmentId, questionId])
+  @@map("assessment_questions")
+}
+
+model Submission {
+  id           String   @id @default(cuid())
+  assessmentId String
+  studentId    String
+  schoolId     String
+  answers      Json
+  score        Int?
+  submittedAt  DateTime @default(now())
+
+  assessment Assessment @relation(fields: [assessmentId], references: [id])
+  student    Student    @relation(fields: [studentId], references: [id])
+  school     School     @relation(fields: [schoolId], references: [id])
+
+  @@unique([assessmentId, studentId])
+  @@map("submissions")
+}
 ```
 
 ---
@@ -475,11 +553,9 @@ const JWT_SECRET = process.env.JWT_SECRET!;
 export async function hashPassword(password: string) {
   return bcrypt.hash(password, 12);
 }
-
 export async function verifyPassword(password: string, hash: string) {
   return bcrypt.compare(password, hash);
 }
-
 export function signToken(payload: {
   userId: string;
   role: Role;
@@ -487,7 +563,6 @@ export function signToken(payload: {
 }) {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
 }
-
 export function verifyToken(token: string) {
   return jwt.verify(token, JWT_SECRET) as {
     userId: string;
@@ -509,11 +584,7 @@ export function withAuth(handler: Handler, allowedRoles?: Role[]) {
   return async (req: NextRequest, context: any) => {
     const authHeader = req.headers.get("authorization");
     const token = authHeader?.split(" ")[1];
-
-    if (!token) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
+    if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     try {
       const decoded = verifyToken(token);
       if (allowedRoles && !allowedRoles.includes(decoded.role)) {
@@ -533,40 +604,40 @@ export function withAuth(handler: Handler, allowedRoles?: Role[]) {
 ## Completed Tasks
 
 ### Sprint 1 — Foundation ✅
-- TASK-000: Folder structure ✅
-- TASK-001: Prisma client singleton ✅
-- TASK-002: Auth utilities ✅
-- TASK-003: withAuth middleware ✅
-- TASK-004: Login API endpoint ✅
-- TASK-005: Super admin seed script ✅
+- TASK-000 through TASK-005 all complete
 
-### Sprint 2 — Super Admin & School Management ✅
-- TASK-006: POST + GET /api/schools ✅
-- TASK-007: GET + PATCH + DELETE /api/schools/:id ✅
-- TASK-008: POST + GET /api/schools/:id/admins ✅
-- TASK-009: POST + GET /api/teachers ✅
-- TASK-010: POST + GET /api/students ✅
-- TASK-011: POST + GET /api/classes ✅
-- TASK-012: POST + DELETE /api/classes/:id/enroll ✅
+### Sprint 2 — Core Management APIs ✅
+- TASK-006 through TASK-012 all complete
 
-### Bugfixes Applied ✅
-- BUGFIX-001: GET /api/schools/:id now returns school details ✅
-- BUGFIX-002: Root page redirects to /login ✅
-- BUGFIX-003: Layout metadata updated to EduPulse branding ✅
-- BUGFIX-004: macOS junk files removed and gitignored ✅
+### Sprint 3 — Attendance & Fees ✅
+- TASK-013: POST + GET /api/attendance ✅
+- TASK-014: GET /api/attendance/summary ✅
+- TASK-015: POST + GET /api/fees/structures ✅
+- TASK-016: POST + GET /api/fees ✅
+- TASK-017: POST + GET /api/fees/:id/payments ✅
+- TASK-018: GET + PATCH /api/fees/:id ✅
+
+### Schema ✅
+- CBT tables added (Question, Assessment, AssessmentQuestion, Submission)
+- Migration: 20260716092148_add_cbt_tables applied
 
 ---
 
 ## Current Sprint
-**Sprint 3 — Attendance & Fees**
+**Sprint 4 — Frontend**
 
 ## Active Tasks
-- TASK-013: POST + GET /api/attendance
-- TASK-014: GET /api/attendance/summary
-- TASK-015: POST + GET /api/fees/structures
-- TASK-016: POST + GET /api/fees
-- TASK-017: POST + GET /api/fees/:id/payments
-- TASK-018: GET + PATCH /api/fees/:id
+- TASK-019: Login page
+- TASK-020: Root middleware (route protection)
+- TASK-021: Super admin layout + dashboard
+- TASK-022: Schools management page (super admin)
+- TASK-023: School admin layout + dashboard
+- TASK-024: Teachers management page
+- TASK-025: Students management page
+- TASK-026: Classes management page
+- TASK-027: Teacher layout + dashboard
+- TASK-028: Attendance marking page
+- TASK-029: Fees management page
 
 ---
 
@@ -578,7 +649,7 @@ export function withAuth(handler: Handler, allowedRoles?: Role[]) {
 
 ## Known IDs (Zenith Academy)
 - School ID:    cmnw0wivf0000bqujydenkbdh
-- Class ID:     cmrdwsd4u000580v5odkpolrw  (Primary 5A)
+- Class ID:     cmrdwsd4u000580v5odkpolrw  (Primary 5A — Nina Kabir)
 - Student 1:    cmrdk2iei000280v5rgejcicx  (Ahmad Muhammad — STU/2026/001)
 - Student 2:    cmrdk37zk000380v5u4ehelj1  (Amina Bello — STU/2026/002)
 - Teacher ID:   cmrdj45x6000180v5exz4vx4y  (Nina Kabir)

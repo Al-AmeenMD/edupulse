@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
       data: { lastLoginAt: new Date() },
     });
 
-    return NextResponse.json(
+    const response = NextResponse.json(
       {
         token,
         user: {
@@ -81,6 +81,17 @@ export async function POST(req: NextRequest) {
       },
       { status: 200 }
     );
+
+    response.cookies.set({
+      name: "edupulse_token",
+      value: token,
+      httpOnly: false,
+      path: "/",
+      maxAge: 60 * 60 * 24 * 7,
+      sameSite: "lax",
+    });
+
+    return response;
   } catch {
     return NextResponse.json(
       { error: "Internal server error" },
