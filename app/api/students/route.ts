@@ -110,7 +110,33 @@ export const GET = withAuth(
         where.isActive = false;
       }
 
-      if (classId) {
+      if (req.user.role === Role.TEACHER) {
+        const teacherRecord = await prisma.teacher.findUnique({
+          where: { userId: req.user.userId },
+          select: { id: true },
+        });
+
+        if (!teacherRecord) {
+          return NextResponse.json(
+            { error: "Teacher profile not found" },
+            { status: 404 }
+          );
+        }
+
+        const enrollmentFilter: any = {
+          class: {
+            teacherId: teacherRecord.id,
+          },
+        };
+
+        if (classId) {
+          enrollmentFilter.classId = classId;
+        }
+
+        where.classEnrollments = {
+          some: enrollmentFilter,
+        };
+      } else if (classId) {
         where.classEnrollments = {
           some: {
             classId,

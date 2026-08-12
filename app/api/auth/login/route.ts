@@ -30,6 +30,11 @@ export async function POST(req: NextRequest) {
         role: true,
         schoolId: true,
         isActive: true,
+        school: {
+          select: {
+            name: true,
+          },
+        },
       },
     });
 
@@ -77,6 +82,7 @@ export async function POST(req: NextRequest) {
           email: user.email,
           role: user.role,
           schoolId: user.schoolId,
+          schoolName: user.school?.name || null,
         },
       },
       { status: 200 }
