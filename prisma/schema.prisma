@@ -12,8 +12,10 @@ model School {
   address       String?
   email         String?
   phone         String?
-  logoUrl       String?
-  isActive      Boolean   @default(true)
+  logoUrl           String?
+  studentIdTemplate  String    @default("{PREFIX}/{YEAR}/{SEQ:3}")
+  studentIdPrefix    String    @default("STU")
+  isActive          Boolean   @default(true)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -102,6 +104,7 @@ model Student {
   gender           String?
   address          String?
   avatarUrl        String?
+  admissionLevel   String?
   guardianName     String?
   guardianPhone    String?
   guardianEmail    String?
