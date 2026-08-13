@@ -1,15 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+interface ClassItem {
+  id: string;
+  name: string;
+  level?: string | null;
+  section?: string | null;
+  academicYear?: string | null;
+}
 
 interface ClassEnrollment {
   id: string;
   class: {
     id: string;
     name: string;
-    level?: string;
-    section?: string;
-    academicYear?: string;
   };
 }
 
@@ -32,9 +37,17 @@ interface Student {
 
 export default function StudentsPage() {
   const [students, setStudents] = useState<Student[]>([]);
+  const [classes, setClasses] = useState<ClassItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  // Filters
   const [search, setSearch] = useState("");
+  const [selectedClassId, setSelectedClassId] = useState("all");
+  const [isActiveFilter, setIsActiveFilter] = useState("all");
+
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Add Student Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -51,21 +64,59 @@ export default function StudentsPage() {
   const [guardianPhone, setGuardianPhone] = useState("");
   const [guardianEmail, setGuardianEmail] = useState("");
 
-  // Dynamic admissionLevel state
+  // Dynamic Admission Level State
   const [requiresLevel, setRequiresLevel] = useState(false);
   const [existingLevels, setExistingLevels] = useState<string[]>([]);
   const [selectedLevelOption, setSelectedLevelOption] = useState("");
   const [customAdmissionLevel, setCustomAdmissionLevel] = useState("");
 
-  // Fetch Students
+  // Fetch Classes for Filter Dropdown
+  async function fetchClasses() {
+    try {
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) return;
+
+      const res = await fetch("/api/classes", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setClasses(data.data || []);
+      }
+    } catch (err: any) {
+      console.error("Failed to fetch classes for filter:", err);
+    }
+  }
+
+  useEffect(() => {
+    fetchClasses();
+  }, []);
+
+  // Fetch Students with AbortController for race condition safety
   async function fetchStudents() {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
       setError("");
       const token = localStorage.getItem("edupulse_token");
       if (!token) return;
 
-      const res = await fetch("/api/students", {
+      let url = "/api/students";
+      const params = new URLSearchParams();
+      if (search.trim()) params.append("search", search.trim());
+      if (selectedClassId !== "all") params.append("classId", selectedClassId);
+      if (isActiveFilter !== "all") params.append("isActive", isActiveFilter);
+      if (params.toString()) url += `?${params.toString()}`;
+
+      const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -75,17 +126,22 @@ export default function StudentsPage() {
       const data = await res.json();
       setStudents(data.data || []);
     } catch (err: any) {
-      setError(err.message || "An error occurred");
+      if (err.name === "AbortError") {
+        return;
+      }
+      setError(err.message || "An error occurred while fetching students");
     } finally {
-      setLoading(false);
+      if (abortControllerRef.current === controller) {
+        setLoading(false);
+      }
     }
   }
 
   useEffect(() => {
     fetchStudents();
-  }, []);
+  }, [search, selectedClassId, isActiveFilter]);
 
-  // Check School Settings & Template on Modal Open
+  // Open Modal & Check School Settings
   async function handleOpenModal() {
     setModalError("");
     setFirstName("");
@@ -103,7 +159,6 @@ export default function StudentsPage() {
       const token = localStorage.getItem("edupulse_token");
       if (!token) return;
 
-      // 1. Fetch GET /api/schools/my-settings
       const settingsRes = await fetch("/api/schools/my-settings", {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -115,7 +170,6 @@ export default function StudentsPage() {
         setRequiresLevel(hasLevelToken);
       }
 
-      // 2. Extract unique admissionLevel values from existing students
       const uniqueLevels = Array.from(
         new Set(
           students
@@ -156,7 +210,7 @@ export default function StudentsPage() {
         }
 
         if (!finalAdmissionLevel) {
-          throw new Error("Admission level is required for your school's ID format");
+          throw new Error("Admission level is required for your school's student ID template");
         }
       }
 
@@ -186,6 +240,7 @@ export default function StudentsPage() {
       }
 
       setIsModalOpen(false);
+      setSuccess(`Student ${data.data.firstName} ${data.data.lastName} registered successfully with Student ID: ${data.data.studentId}`);
       fetchStudents();
     } catch (err: any) {
       setModalError(err.message || "An error occurred while creating student");
@@ -193,15 +248,6 @@ export default function StudentsPage() {
       setSubmitting(false);
     }
   }
-
-  const filteredStudents = students.filter((student) => {
-    const query = search.toLowerCase();
-    return (
-      student.firstName.toLowerCase().includes(query) ||
-      student.lastName.toLowerCase().includes(query) ||
-      student.studentId.toLowerCase().includes(query)
-    );
-  });
 
   return (
     <div className="space-y-8">
@@ -226,7 +272,22 @@ export default function StudentsPage() {
         </button>
       </div>
 
-      {/* Error Alert */}
+      {/* Success Alert Banner (Displaying Returned studentId Dynamically) */}
+      {success && (
+        <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm font-medium flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <svg className="w-5 h-5 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
+            </svg>
+            <span className="font-semibold">{success}</span>
+          </div>
+          <button onClick={() => setSuccess("")} className="text-emerald-700 hover:text-emerald-900 font-bold text-xs">
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Error Alert Banner */}
       {error && (
         <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-sm font-medium flex items-center justify-between gap-3">
           <span>{error}</span>
@@ -238,8 +299,8 @@ export default function StudentsPage() {
 
       {/* Table Container Card */}
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
-        {/* Search Bar */}
-        <div className="p-4 sm:p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        {/* Search & Filter Bar */}
+        <div className="p-4 sm:p-6 border-b border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="relative flex-1 max-w-md">
             <svg className="w-5 h-5 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
@@ -249,8 +310,45 @@ export default function StudentsPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search by student name or ID..."
-              className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+              className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 font-medium"
             />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Class Filter */}
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                Class:
+              </label>
+              <select
+                value={selectedClassId}
+                onChange={(e) => setSelectedClassId(e.target.value)}
+                className="px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 font-medium"
+              >
+                <option value="all">All Classes</option>
+                {classes.map((cls) => (
+                  <option key={cls.id} value={cls.id}>
+                    {cls.name} {cls.section ? `(${cls.section})` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Status Filter */}
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                Status:
+              </label>
+              <select
+                value={isActiveFilter}
+                onChange={(e) => setIsActiveFilter(e.target.value)}
+                className="px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 font-medium"
+              >
+                <option value="all">All Students</option>
+                <option value="true">Active Only</option>
+                <option value="false">Inactive Only</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -261,7 +359,7 @@ export default function StudentsPage() {
               <div key={i} className="h-12 bg-slate-100 animate-pulse rounded-xl" />
             ))}
           </div>
-        ) : filteredStudents.length === 0 ? (
+        ) : students.length === 0 ? (
           <div className="p-12 text-center">
             <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mx-auto mb-3">
               <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -269,49 +367,74 @@ export default function StudentsPage() {
               </svg>
             </div>
             <p className="text-sm font-semibold text-slate-800">No students found</p>
-            <p className="text-xs text-slate-500 mt-1">No student records match your query.</p>
+            <p className="text-xs text-slate-500 mt-1">
+              {search || selectedClassId !== "all" || isActiveFilter !== "all"
+                ? "No student records match your active search filters."
+                : "No student records available for your school."}
+            </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-100 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  <th className="px-6 py-3.5">Student Name</th>
                   <th className="px-6 py-3.5">Student ID</th>
+                  <th className="px-6 py-3.5">Name</th>
+                  <th className="px-6 py-3.5">Gender</th>
+                  <th className="px-6 py-3.5">Guardian</th>
                   <th className="px-6 py-3.5">Class</th>
-                  <th className="px-6 py-3.5">Admission Level</th>
-                  <th className="px-6 py-3.5 text-right">Enrolled Date</th>
+                  <th className="px-6 py-3.5">Enrolled Date</th>
+                  <th className="px-6 py-3.5">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
-                {filteredStudents.map((student) => {
+                {students.map((student) => {
                   const assignedClass =
                     student.classEnrollments?.[0]?.class?.name || "Unassigned";
 
                   return (
                     <tr key={student.id} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="px-6 py-4 font-mono text-xs font-bold text-slate-900">
+                        {student.studentId}
+                      </td>
                       <td className="px-6 py-4 font-semibold text-slate-900">
                         {student.firstName} {student.lastName}
                       </td>
-                      <td className="px-6 py-4 font-mono text-xs text-slate-600">
-                        {student.studentId}
+                      <td className="px-6 py-4 text-xs text-slate-600">
+                        {student.gender || "—"}
+                      </td>
+                      <td className="px-6 py-4">
+                        {student.guardianName ? (
+                          <div>
+                            <div className="font-semibold text-xs text-slate-800">
+                              {student.guardianName}
+                            </div>
+                            <div className="text-[11px] text-slate-500 font-mono">
+                              {student.guardianPhone || student.guardianEmail || ""}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 italic text-xs">—</span>
+                        )}
                       </td>
                       <td className="px-6 py-4">
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700">
                           {assignedClass}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-xs text-slate-500">
-                        {student.admissionLevel ? (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200/60">
-                            {student.admissionLevel}
+                      <td className="px-6 py-4 text-xs text-slate-500 font-mono">
+                        {new Date(student.createdAt).toLocaleDateString()}
+                      </td>
+                      <td className="px-6 py-4">
+                        {student.isActive ? (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            Active
                           </span>
                         ) : (
-                          <span className="text-slate-400 italic">None</span>
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-50 text-rose-700 border border-rose-200">
+                            Inactive
+                          </span>
                         )}
-                      </td>
-                      <td className="px-6 py-4 text-right text-xs text-slate-500">
-                        {new Date(student.createdAt).toLocaleDateString()}
                       </td>
                     </tr>
                   );
@@ -347,8 +470,11 @@ export default function StudentsPage() {
 
             {/* Modal Error Alert */}
             {modalError && (
-              <div className="mx-6 mt-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-medium">
-                {modalError}
+              <div className="mx-6 mt-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-medium flex items-center gap-2">
+                <svg className="w-4 h-4 text-rose-600 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0zm-9 3.75h.008v.008H12v-.008z" />
+                </svg>
+                <span>{modalError}</span>
               </div>
             )}
 
@@ -383,7 +509,7 @@ export default function StudentsPage() {
                 </div>
               </div>
 
-              {/* Conditional Admission Level Field (Rendered ONLY if template contains {LEVEL}) */}
+              {/* Conditional Admission Level Field */}
               {requiresLevel && (
                 <div className="space-y-2 p-3.5 bg-blue-50/60 border border-blue-200/80 rounded-xl">
                   <label className="block text-xs font-bold text-blue-900 uppercase tracking-wider">
@@ -394,7 +520,7 @@ export default function StudentsPage() {
                     <select
                       value={selectedLevelOption}
                       onChange={(e) => setSelectedLevelOption(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 font-medium"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 font-medium"
                     >
                       {existingLevels.map((lvl) => (
                         <option key={lvl} value={lvl}>
@@ -411,7 +537,7 @@ export default function StudentsPage() {
                       value={customAdmissionLevel}
                       onChange={(e) => setCustomAdmissionLevel(e.target.value)}
                       required
-                      placeholder="e.g. Primary, Nursery, JSS1"
+                      placeholder="e.g. Primary, Nursery, Secondary"
                       className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 font-medium"
                     />
                   )}
@@ -446,6 +572,7 @@ export default function StudentsPage() {
                     <option value="">Select Gender</option>
                     <option value="Male">Male</option>
                     <option value="Female">Female</option>
+                    <option value="Other">Other</option>
                   </select>
                 </div>
               </div>
