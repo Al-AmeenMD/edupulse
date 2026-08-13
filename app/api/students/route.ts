@@ -3,6 +3,24 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/middleware/withAuth";
 import { prisma } from "@/lib/prisma";
 
+function generateStudentId(
+  template: string,
+  values: {
+    prefix: string;
+    year: string;
+    level?: string;
+    seq: number;
+  }
+): string {
+  return template
+    .replace("{PREFIX}", values.prefix)
+    .replace("{YEAR}", values.year)
+    .replace("{LEVEL}", values.level ?? "")
+    .replace(/\{SEQ:(\d+)\}/, (_, digits) =>
+      String(values.seq).padStart(parseInt(digits, 10), "0")
+    );
+}
+
 export const POST = withAuth(
   async (req) => {
     try {
@@ -21,6 +39,7 @@ export const POST = withAuth(
         dateOfBirth?: string;
         gender?: string;
         address?: string;
+        admissionLevel?: string;
         guardianName?: string;
         guardianPhone?: string;
         guardianEmail?: string;
@@ -41,13 +60,60 @@ export const POST = withAuth(
         );
       }
 
-      const count = await prisma.student.count({
-        where: { schoolId },
+      const school = await prisma.school.findUnique({
+        where: { id: schoolId },
+        select: { studentIdTemplate: true, studentIdPrefix: true },
       });
 
+      if (!school) {
+        return NextResponse.json(
+          { error: "School not found" },
+          { status: 404 }
+        );
+      }
+
+      const template = school.studentIdTemplate || "{PREFIX}/{YEAR}/{SEQ:3}";
+      const prefix = school.studentIdPrefix || "STU";
+      const hasLevelToken = template.includes("{LEVEL}");
+      const hasYearToken = template.includes("{YEAR}");
+
+      const admissionLevelInput = body.admissionLevel?.trim();
+
+      if (hasLevelToken && !admissionLevelInput) {
+        return NextResponse.json(
+          { error: "admissionLevel is required for this school's ID format" },
+          { status: 400 }
+        );
+      }
+
+      const admissionLevel = hasLevelToken ? admissionLevelInput : null;
       const currentYear = new Date().getFullYear();
-      const paddedCount = String(count + 1).padStart(3, "0");
-      const studentId = `STU/${currentYear}/${paddedCount}`;
+      const yearStart = new Date(currentYear, 0, 1);
+      const yearEnd = new Date(currentYear + 1, 0, 1);
+
+      const whereCount: any = { schoolId };
+
+      if (hasLevelToken) {
+        whereCount.admissionLevel = admissionLevel;
+      }
+
+      if (hasYearToken) {
+        whereCount.createdAt = {
+          gte: yearStart,
+          lt: yearEnd,
+        };
+      }
+
+      const count = await prisma.student.count({
+        where: whereCount,
+      });
+
+      const studentId = generateStudentId(template, {
+        prefix,
+        year: String(currentYear),
+        level: admissionLevel || "",
+        seq: count + 1,
+      });
 
       const student = await prisma.student.create({
         data: {
@@ -58,6 +124,7 @@ export const POST = withAuth(
           dateOfBirth: body.dateOfBirth ? new Date(body.dateOfBirth) : null,
           gender,
           address,
+          admissionLevel,
           guardianName,
           guardianPhone,
           guardianEmail,
@@ -65,7 +132,13 @@ export const POST = withAuth(
       });
 
       return NextResponse.json({ data: student }, { status: 201 });
-    } catch {
+    } catch (error: any) {
+      if (error?.code === "P2002") {
+        return NextResponse.json(
+          { error: "ID generation conflict — please try again" },
+          { status: 409 }
+        );
+      }
       return NextResponse.json(
         { error: "Internal server error" },
         { status: 500 }
