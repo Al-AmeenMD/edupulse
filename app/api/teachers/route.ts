@@ -24,6 +24,7 @@ export const POST = withAuth(
         password?: string;
         employeeId?: string;
         qualification?: string;
+        dob?: string;
       };
 
       const firstName = body.firstName?.trim();
@@ -33,6 +34,7 @@ export const POST = withAuth(
       const password = body.password;
       const employeeId = body.employeeId?.trim() || undefined;
       const qualification = body.qualification?.trim() || undefined;
+      const dob = body.dob ? new Date(body.dob) : undefined;
 
       if (!firstName || !lastName || !email || !password) {
         return NextResponse.json(
@@ -74,6 +76,7 @@ export const POST = withAuth(
             schoolId,
             employeeId,
             qualification,
+            dob,
           },
           select: {
             id: true,
@@ -81,6 +84,7 @@ export const POST = withAuth(
             schoolId: true,
             employeeId: true,
             qualification: true,
+            dob: true,
             createdAt: true,
             updatedAt: true,
             user: {
@@ -166,6 +170,7 @@ export const GET = withAuth(
           schoolId: true,
           employeeId: true,
           qualification: true,
+          dob: true,
           createdAt: true,
           updatedAt: true,
           user: {

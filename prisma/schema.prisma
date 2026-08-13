@@ -82,6 +82,7 @@ model Teacher {
   schoolId        String
   employeeId      String?
   qualification   String?
+  dob             DateTime?
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
