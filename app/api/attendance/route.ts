@@ -180,7 +180,7 @@ export const POST = withAuth(
       );
     }
   },
-  [Role.TEACHER, Role.SCHOOL_ADMIN]
+  [Role.TEACHER]
 );
 
 export const GET = withAuth(
@@ -210,10 +210,10 @@ export const GET = withAuth(
         );
       }
 
-      // Verify class belongs to this school
+      // Verify class belongs to this school and assigned teacher
       const classRecord = await prisma.class.findFirst({
         where: { id: classId, schoolId },
-        select: { id: true },
+        select: { id: true, teacherId: true },
       });
 
       if (!classRecord) {
@@ -221,6 +221,20 @@ export const GET = withAuth(
           { error: "Class not found or does not belong to this school" },
           { status: 404 }
         );
+      }
+
+      if (req.user.role === Role.TEACHER) {
+        const teacher = await prisma.teacher.findUnique({
+          where: { userId: req.user.userId },
+          select: { id: true },
+        });
+
+        if (!teacher || classRecord.teacherId !== teacher.id) {
+          return NextResponse.json(
+            { error: "Forbidden: You are not the assigned teacher for this class" },
+            { status: 403 }
+          );
+        }
       }
 
       const where: any = {
@@ -329,5 +343,5 @@ export const GET = withAuth(
       );
     }
   },
-  [Role.TEACHER, Role.SCHOOL_ADMIN]
+  [Role.TEACHER]
 );
