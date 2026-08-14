@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { verifyToken } from "@/lib/auth";
+import { verifyTokenAsync } from "@/lib/auth";
 
 const ROLE_REDIRECTS: Record<string, string> = {
   SUPER_ADMIN: "/super-admin/dashboard",
@@ -8,31 +8,46 @@ const ROLE_REDIRECTS: Record<string, string> = {
   TEACHER: "/teacher/dashboard",
 };
 
-export function middleware(request: NextRequest) {
+const ROUTE_ROLE_MAP: Array<{ prefix: string; requiredRole: string }> = [
+  { prefix: "/super-admin", requiredRole: "SUPER_ADMIN" },
+  { prefix: "/admin", requiredRole: "SCHOOL_ADMIN" },
+  { prefix: "/teacher", requiredRole: "TEACHER" },
+];
+
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const token = request.cookies.get("edupulse_token")?.value;
 
   const isAuthRoute = pathname === "/login";
-  const isProtectedRoute =
-    pathname.startsWith("/super-admin") ||
-    pathname.startsWith("/admin") ||
-    pathname.startsWith("/teacher");
+  const matchedRoute = ROUTE_ROLE_MAP.find((r) => pathname.startsWith(r.prefix));
 
-  // Redirect unauthenticated users to /login
-  if (isProtectedRoute && !token) {
-    return NextResponse.redirect(new URL("/login", request.url));
+  // Protected Routes Role Enforcement
+  if (matchedRoute) {
+    if (!token) {
+      return NextResponse.redirect(new URL("/login", request.url));
+    }
+
+    try {
+      const decoded = await verifyTokenAsync(token);
+      if (decoded.role !== matchedRoute.requiredRole) {
+        return NextResponse.redirect(new URL("/login", request.url));
+      }
+    } catch {
+      // Cryptographic signature verification failed or token expired — redirect to /login
+      return NextResponse.redirect(new URL("/login", request.url));
+    }
   }
 
-  // Redirect authenticated users away from /login to their dashboard
+  // Redirect authenticated users away from /login to their respective dashboard
   if (isAuthRoute && token) {
     try {
-      const decoded = verifyToken(token);
+      const decoded = await verifyTokenAsync(token);
       const redirectPath = ROLE_REDIRECTS[decoded.role];
       if (redirectPath) {
         return NextResponse.redirect(new URL(redirectPath, request.url));
       }
     } catch {
-      // Invalid or expired token — allow visiting login page
+      // Invalid or expired token — allow rendering login page
     }
   }
 

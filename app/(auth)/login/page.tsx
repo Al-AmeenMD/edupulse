@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useState, useEffect, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
 const ROLE_REDIRECTS: Record<string, string> = {
@@ -16,6 +16,17 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    // Clear any existing stale or mismatched session artifacts on mount (client & server cookie)
+    localStorage.removeItem("edupulse_token");
+    localStorage.removeItem("edupulse_user");
+    document.cookie =
+      "edupulse_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
+
+    // Call server logout route to guarantee cookie header deletion
+    fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+  }, []);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
