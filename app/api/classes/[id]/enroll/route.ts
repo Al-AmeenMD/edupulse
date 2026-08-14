@@ -55,21 +55,28 @@ export const POST = withAuth(
         return NextResponse.json({ error: "Student not found" }, { status: 404 });
       }
 
-      // Check student not already enrolled in this class
-      const existingEnrollment = await prisma.classEnrollment.findUnique({
-        where: {
-          studentId_classId: {
-            studentId,
-            classId: id,
+      // Check student not already enrolled in any class
+      const existingEnrollment = await prisma.classEnrollment.findFirst({
+        where: { studentId },
+        include: {
+          class: {
+            select: { id: true, name: true },
           },
         },
       });
 
       if (existingEnrollment) {
-        return NextResponse.json(
-          { error: "Student is already enrolled in this class" },
-          { status: 409 }
-        );
+        if (existingEnrollment.classId === id) {
+          return NextResponse.json(
+            { error: "Student is already enrolled in this class" },
+            { status: 409 }
+          );
+        } else {
+          return NextResponse.json(
+            { error: `Student is already enrolled in class ${existingEnrollment.class.name}` },
+            { status: 409 }
+          );
+        }
       }
 
       const enrollment = await prisma.classEnrollment.create({
