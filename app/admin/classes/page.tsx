@@ -235,6 +235,7 @@ export default function ClassesPage() {
       setSection("");
       setTeacherId("");
       setSuccess(`Class "${data.data.name}" created successfully`);
+      setTimeout(() => setSuccess(""), 4000);
       fetchClasses();
     } catch (err: any) {
       setModalError(err.message || "An error occurred while creating class");
@@ -279,6 +280,7 @@ export default function ClassesPage() {
       }
 
       setSuccess(`Student enrolled successfully into class`);
+      setTimeout(() => setSuccess(""), 4000);
       setSelectedStudentToEnroll("");
       fetchEnrolledStudents(classId);
       fetchClasses();
@@ -316,6 +318,7 @@ export default function ClassesPage() {
       }
 
       setSuccess("Student removed from class");
+      setTimeout(() => setSuccess(""), 4000);
       fetchEnrolledStudents(classId);
       fetchClasses();
       fetchAllSchoolStudents();

@@ -185,6 +185,7 @@ export default function TeachersPage() {
 
       setIsAddModalOpen(false);
       setSuccess(`Teacher ${data.data?.user?.firstName} ${data.data?.user?.lastName} added successfully!`);
+      setTimeout(() => setSuccess(""), 4000);
       fetchTeachers();
     } catch (err: any) {
       setAddModalError(err.message || "An error occurred while creating teacher");
@@ -241,6 +242,7 @@ export default function TeachersPage() {
 
       setIsEditModalOpen(false);
       setSuccess(`Teacher ${data.data?.user?.firstName} ${data.data?.user?.lastName} updated successfully!`);
+      setTimeout(() => setSuccess(""), 4000);
       fetchTeachers();
     } catch (err: any) {
       setEditModalError(err.message || "An error occurred while updating teacher");
@@ -277,6 +279,7 @@ export default function TeachersPage() {
 
       setIsDeactivateModalOpen(false);
       setSuccess(`Teacher ${deactivatingTeacher.user.firstName} ${deactivatingTeacher.user.lastName} deactivated successfully.`);
+      setTimeout(() => setSuccess(""), 4000);
       fetchTeachers();
     } catch (err: any) {
       setDeactivateModalError(err.message || "An error occurred while deactivating teacher");
@@ -307,9 +310,11 @@ export default function TeachersPage() {
       }
 
       setSuccess(`Teacher ${teacher.user.firstName} ${teacher.user.lastName} reactivated successfully!`);
+      setTimeout(() => setSuccess(""), 4000);
       fetchTeachers();
     } catch (err: any) {
       setError(err.message || "An error occurred while reactivating teacher");
+      setTimeout(() => setError(""), 4000);
     }
   }
 

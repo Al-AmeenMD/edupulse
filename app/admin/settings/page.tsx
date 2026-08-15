@@ -137,8 +137,10 @@ export default function AdminSettingsPage() {
       setPrefix(data.data.studentIdPrefix);
       setTemplate(data.data.studentIdTemplate);
       setSuccess("School Student ID configuration saved successfully!");
+      setTimeout(() => setSuccess(""), 4000);
     } catch (err: any) {
       setError(err.message || "An error occurred while saving settings");
+      setTimeout(() => setError(""), 4000);
     } finally {
       setSaving(false);
     }

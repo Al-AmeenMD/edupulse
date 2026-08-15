@@ -359,6 +359,7 @@ export default function SchoolsListPage() {
       fetchSchools();
     } catch (err: any) {
       setError(err.message || "Failed to reactivate school");
+      setTimeout(() => setError(""), 4000);
     }
   }
 

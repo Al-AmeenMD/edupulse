@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, FormEvent } from "react";
+import { useState, useEffect, FormEvent, KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 
 const ROLE_REDIRECTS: Record<string, string> = {
@@ -28,7 +28,7 @@ export default function LoginPage() {
     fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
   }, []);
 
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: FormEvent<HTMLFormElement> | KeyboardEvent<HTMLInputElement>) {
     e.preventDefault();
     setError("");
     setLoading(true);
@@ -44,6 +44,7 @@ export default function LoginPage() {
 
       if (!res.ok) {
         setError(data.error || "Login failed. Please try again.");
+        setTimeout(() => setError(""), 4000);
         setLoading(false);
         return;
       }
@@ -58,6 +59,7 @@ export default function LoginPage() {
       router.push(redirectPath);
     } catch {
       setError("Something went wrong. Please try again.");
+      setTimeout(() => setError(""), 4000);
       setLoading(false);
     }
   }
@@ -234,6 +236,11 @@ export default function LoginPage() {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleSubmit(e);
+                      }
+                    }}
                     placeholder="you@school.edu"
                     className="block w-full rounded-xl border border-gray-200 bg-gray-50/50 py-3 pl-11 pr-4 text-sm text-gray-900 placeholder:text-gray-400 transition-all duration-200 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:outline-none"
                   />
@@ -272,6 +279,11 @@ export default function LoginPage() {
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleSubmit(e);
+                      }
+                    }}
                     placeholder="Enter your password"
                     className="block w-full rounded-xl border border-gray-200 bg-gray-50/50 py-3 pl-11 pr-12 text-sm text-gray-900 placeholder:text-gray-400 transition-all duration-200 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:outline-none"
                   />

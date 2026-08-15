@@ -273,11 +273,13 @@ export default function TeacherAttendancePage() {
 
     if (!selectedClassId || !selectedDate) {
       setError("Please select a class and date.");
+      setTimeout(() => setError(""), 4000);
       return;
     }
 
     if (students.length === 0) {
       setError("Cannot submit attendance: No enrolled students in this class.");
+      setTimeout(() => setError(""), 4000);
       return;
     }
 
@@ -315,8 +317,10 @@ export default function TeacherAttendancePage() {
       setSuccessMessage(
         `Attendance successfully ${isExistingEntry ? "updated" : "saved"} for ${selectedDate}!`
       );
+      setTimeout(() => setSuccessMessage(""), 4000);
     } catch (err: any) {
       setError(err.message || "An error occurred while submitting attendance.");
+      setTimeout(() => setError(""), 4000);
     } finally {
       setSubmitting(false);
     }

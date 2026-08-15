@@ -282,6 +282,7 @@ export default function SchoolDetailPage() {
       fetchSchoolDetail();
     } catch (err: any) {
       setError(err.message || "Error updating status");
+      setTimeout(() => setError(""), 4000);
     }
   }
 

@@ -85,6 +85,7 @@ export default function FeesManagementPage() {
     term: "Term 1",
     dueDate: "",
   });
+  const [createStructureDisplayAmount, setCreateStructureDisplayAmount] = useState("");
   const [creatingStructure, setCreatingStructure] = useState(false);
 
   // Assign Fee Modal State
@@ -110,6 +111,8 @@ export default function FeesManagementPage() {
     method: "cash",
     reference: "",
   });
+  const [rawAmount, setRawAmount] = useState("");
+  const [displayAmount, setDisplayAmount] = useState("");
   const [submittingPayment, setSubmittingPayment] = useState(false);
 
   // Waive Modal State
@@ -121,6 +124,45 @@ export default function FeesManagementPage() {
   const [successMessage, setSuccessMessage] = useState("");
 
   const searchAbortControllerRef = useRef<AbortController | null>(null);
+
+  function formatDisplayAmount(raw: string): string {
+    if (!raw) return "";
+    const parts = raw.split(".");
+    const sanitizedRaw = parts.length > 2 
+      ? parts[0] + "." + parts.slice(1).join("") 
+      : raw;
+
+    if (sanitizedRaw.includes(".")) {
+      const [intPart, decPart] = sanitizedRaw.split(".");
+      const numInt = parseInt(intPart || "0", 10);
+      const formattedInt = isNaN(numInt) ? "0" : numInt.toLocaleString("en-NG");
+      return `${formattedInt}.${decPart}`;
+    }
+
+    const num = parseFloat(sanitizedRaw);
+    return !isNaN(num) ? num.toLocaleString("en-NG") : sanitizedRaw;
+  }
+
+  const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value.replace(/[^0-9.]/g, "");
+    const parts = raw.split(".");
+    const sanitizedRaw = parts.length > 2 
+      ? parts[0] + "." + parts.slice(1).join("") 
+      : raw;
+    setRawAmount(sanitizedRaw);
+    setPaymentForm((prev) => ({ ...prev, amount: sanitizedRaw }));
+    setDisplayAmount(formatDisplayAmount(sanitizedRaw));
+  };
+
+  const handleCreateStructureAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value.replace(/[^0-9.]/g, "");
+    const parts = raw.split(".");
+    const sanitizedRaw = parts.length > 2 
+      ? parts[0] + "." + parts.slice(1).join("") 
+      : raw;
+    setCreateStructureForm((prev) => ({ ...prev, amount: sanitizedRaw }));
+    setCreateStructureDisplayAmount(formatDisplayAmount(sanitizedRaw));
+  };
 
   // ---------------------------------------------------------------------------
   // Data Fetchers
@@ -246,6 +288,7 @@ export default function FeesManagementPage() {
 
     if (!createStructureForm.name.trim() || !createStructureForm.amount || !createStructureForm.dueDate) {
       setError("Please fill in all required fields.");
+      setTimeout(() => setError(""), 4000);
       return;
     }
 
@@ -284,10 +327,13 @@ export default function FeesManagementPage() {
         term: "Term 1",
         dueDate: "",
       });
+      setCreateStructureDisplayAmount("");
       setSuccessMessage(`Fee structure "${payload.name}" created successfully!`);
+      setTimeout(() => setSuccessMessage(""), 4000);
       fetchStructures();
     } catch (err: any) {
       setError(err.message || "An error occurred while creating fee structure.");
+      setTimeout(() => setError(""), 4000);
     } finally {
       setCreatingStructure(false);
     }
@@ -303,10 +349,12 @@ export default function FeesManagementPage() {
 
     if (assignMode === "single" && !selectedStudentId) {
       setError("Please select a student to assign this fee.");
+      setTimeout(() => setError(""), 4000);
       return;
     }
     if (assignMode === "class" && !selectedClassId) {
       setError("Please select a class to assign this fee.");
+      setTimeout(() => setError(""), 4000);
       return;
     }
 
@@ -339,6 +387,7 @@ export default function FeesManagementPage() {
       } else {
         setSuccessMessage("Fee structure assigned successfully!");
       }
+      setTimeout(() => setSuccessMessage(""), 4000);
 
       setAssigningStructure(null);
       setSelectedStudentId("");
@@ -347,6 +396,7 @@ export default function FeesManagementPage() {
       if (activeTab === "student_fees") fetchStudentFees();
     } catch (err: any) {
       setError(err.message || "An error occurred while assigning fee.");
+      setTimeout(() => setError(""), 4000);
     } finally {
       setAssigningFee(false);
     }
@@ -359,9 +409,10 @@ export default function FeesManagementPage() {
     setError("");
     setSuccessMessage("");
 
-    const payAmount = parseFloat(paymentForm.amount);
+    const payAmount = parseFloat(rawAmount || paymentForm.amount);
     if (isNaN(payAmount) || payAmount <= 0) {
       setError("Please enter a valid payment amount greater than zero.");
+      setTimeout(() => setError(""), 4000);
       return;
     }
 
@@ -390,10 +441,14 @@ export default function FeesManagementPage() {
 
       setPayingFee(null);
       setPaymentForm({ amount: "", method: "cash", reference: "" });
+      setRawAmount("");
+      setDisplayAmount("");
       setSuccessMessage(`Payment of ${formatNaira(payAmount)} recorded successfully!`);
+      setTimeout(() => setSuccessMessage(""), 4000);
       fetchStudentFees();
     } catch (err: any) {
       setError(err.message || "An error occurred while recording payment.");
+      setTimeout(() => setError(""), 4000);
     } finally {
       setSubmittingPayment(false);
     }
@@ -466,6 +521,15 @@ export default function FeesManagementPage() {
           <button
             onClick={() => {
               setError("");
+              setCreateStructureForm({
+                name: "",
+                type: "TUITION",
+                amount: "",
+                academicYear: "2025/2026",
+                term: "Term 1",
+                dueDate: "",
+              });
+              setCreateStructureDisplayAmount("");
               setIsCreateStructureOpen(true);
             }}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-sm transition-all shadow-xs cursor-pointer"
@@ -708,11 +772,14 @@ export default function FeesManagementPage() {
                                     setError("");
                                     setPayingFee(fee);
                                     const remaining = parseFloat(String(fee.amountDue)) - parseFloat(String(fee.amountPaid));
+                                    const raw = remaining > 0 ? String(remaining) : "";
+                                    setRawAmount(raw);
                                     setPaymentForm({
-                                      amount: remaining > 0 ? String(remaining) : "",
+                                      amount: raw,
                                       method: "cash",
                                       reference: "",
                                     });
+                                    setDisplayAmount(formatDisplayAmount(raw));
                                   }}
                                   className="inline-flex items-center px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-2xs transition-colors cursor-pointer"
                                 >
@@ -750,7 +817,10 @@ export default function FeesManagementPage() {
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
               <h3 className="font-bold text-slate-900 text-base">Create Fee Structure</h3>
               <button
-                onClick={() => setIsCreateStructureOpen(false)}
+                onClick={() => {
+                  setIsCreateStructureOpen(false);
+                  setCreateStructureDisplayAmount("");
+                }}
                 className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -799,12 +869,11 @@ export default function FeesManagementPage() {
                     Amount (₦) *
                   </label>
                   <input
-                    type="number"
-                    step="0.01"
+                    type="text"
                     required
-                    placeholder="50000.00"
-                    value={createStructureForm.amount}
-                    onChange={(e) => setCreateStructureForm({ ...createStructureForm, amount: e.target.value })}
+                    placeholder="50,000.00"
+                    value={createStructureDisplayAmount}
+                    onChange={handleCreateStructureAmountChange}
                     className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white font-mono"
                   />
                 </div>
@@ -860,7 +929,10 @@ export default function FeesManagementPage() {
               <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setIsCreateStructureOpen(false)}
+                  onClick={() => {
+                    setIsCreateStructureOpen(false);
+                    setCreateStructureDisplayAmount("");
+                  }}
                   className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 font-semibold text-xs transition-colors cursor-pointer"
                 >
                   Cancel
@@ -1011,7 +1083,11 @@ export default function FeesManagementPage() {
                 </p>
               </div>
               <button
-                onClick={() => setPayingFee(null)}
+                onClick={() => {
+                  setPayingFee(null);
+                  setRawAmount("");
+                  setDisplayAmount("");
+                }}
                 className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -1045,12 +1121,11 @@ export default function FeesManagementPage() {
                   Payment Amount (₦) *
                 </label>
                 <input
-                  type="number"
-                  step="0.01"
+                  type="text"
                   required
                   placeholder="Enter amount paid..."
-                  value={paymentForm.amount}
-                  onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })}
+                  value={displayAmount}
+                  onChange={handleAmountChange}
                   className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
                 />
               </div>
@@ -1089,7 +1164,11 @@ export default function FeesManagementPage() {
               <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setPayingFee(null)}
+                  onClick={() => {
+                    setPayingFee(null);
+                    setRawAmount("");
+                    setDisplayAmount("");
+                  }}
                   className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 font-semibold text-xs transition-colors cursor-pointer"
                 >
                   Cancel

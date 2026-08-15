@@ -241,6 +241,7 @@ export default function StudentsPage() {
 
       setIsModalOpen(false);
       setSuccess(`Student ${data.data.firstName} ${data.data.lastName} registered successfully with Student ID: ${data.data.studentId}`);
+      setTimeout(() => setSuccess(""), 4000);
       fetchStudents();
     } catch (err: any) {
       setModalError(err.message || "An error occurred while creating student");
