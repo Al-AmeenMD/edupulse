@@ -400,7 +400,7 @@ export default function AdminDashboardPage() {
                   <tr className="bg-slate-50/80 border-b border-slate-100 text-xs font-semibold text-slate-500 uppercase tracking-wider">
                     <th className="px-6 py-3.5">Student</th>
                     <th className="px-6 py-3.5">Fee Name</th>
-                    <th className="px-6 py-3.5">Amount Due</th>
+                    <th className="px-6 py-3.5">Amount Due (₦)</th>
                     <th className="px-6 py-3.5 text-right">Due Date</th>
                   </tr>
                 </thead>
@@ -412,9 +412,9 @@ export default function AdminDashboardPage() {
                     const feeName = fee.feeStructure?.name || "Tuition Fee";
                     const formattedAmount = Number(
                       fee.feeStructure?.amount || 0
-                    ).toLocaleString("en-US", {
-                      style: "currency",
-                      currency: "USD",
+                    ).toLocaleString("en-NG", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
                     });
 
                     return (
@@ -425,7 +425,7 @@ export default function AdminDashboardPage() {
                         <td className="px-6 py-3.5 text-slate-600 text-xs">
                           {feeName}
                         </td>
-                        <td className="px-6 py-3.5 font-semibold text-rose-600 text-xs">
+                        <td className="px-6 py-3.5 font-semibold text-rose-600 text-xs font-mono">
                           {formattedAmount}
                         </td>
                         <td className="px-6 py-3.5 text-right text-xs font-medium text-rose-700">
