@@ -6,7 +6,6 @@ import { useSearchParams, useRouter } from "next/navigation";
 interface ClassItem {
   id: string;
   name: string;
-  section?: string | null;
   level?: string | null;
   academicYear: string;
 }
@@ -421,7 +420,7 @@ export default function TeacherAttendancePage() {
                 ) : (
                   classes.map((cls) => (
                     <option key={cls.id} value={cls.id}>
-                      {cls.name} {cls.section ? `(${cls.section})` : ""} — {cls.academicYear}
+                      {cls.name} — {cls.academicYear}
                     </option>
                   ))
                 )}

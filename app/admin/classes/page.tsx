@@ -17,7 +17,6 @@ interface ClassItem {
   id: string;
   name: string;
   level?: string | null;
-  section?: string | null;
   academicYear: string;
   teacherId?: string | null;
   teacher?: Teacher | null;
@@ -61,7 +60,6 @@ export default function ClassesPage() {
 
   const [name, setName] = useState("");
   const [level, setLevel] = useState("");
-  const [section, setSection] = useState("");
   const [academicYear, setAcademicYear] = useState("2025/2026");
   const [teacherId, setTeacherId] = useState("");
 
@@ -217,7 +215,6 @@ export default function ClassesPage() {
         body: JSON.stringify({
           name: name.trim(),
           level: level.trim() || undefined,
-          section: section.trim() || undefined,
           academicYear: academicYear.trim(),
           teacherId: teacherId.trim() || undefined,
         }),
@@ -232,7 +229,6 @@ export default function ClassesPage() {
       setIsModalOpen(false);
       setName("");
       setLevel("");
-      setSection("");
       setTeacherId("");
       setSuccess(`Class "${data.data.name}" created successfully`);
       setTimeout(() => setSuccess(""), 4000);
@@ -446,7 +442,7 @@ export default function ClassesPage() {
                         }`}
                       >
                         <td className="px-6 py-4 font-bold text-slate-900">
-                          {cls.name} {cls.section ? `(${cls.section})` : ""}
+                          {cls.name}
                         </td>
                         <td className="px-6 py-4 text-xs text-slate-600 font-medium">
                           {cls.level || "—"}
@@ -655,32 +651,17 @@ export default function ClassesPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="block text-xs font-semibold text-slate-700">
-                    Level
-                  </label>
-                  <input
-                    type="text"
-                    value={level}
-                    onChange={(e) => setLevel(e.target.value)}
-                    placeholder="e.g. Primary, Secondary"
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 font-medium"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="block text-xs font-semibold text-slate-700">
-                    Section / Stream
-                  </label>
-                  <input
-                    type="text"
-                    value={section}
-                    onChange={(e) => setSection(e.target.value)}
-                    placeholder="e.g. A, B, Science"
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 font-medium"
-                  />
-                </div>
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Level
+                </label>
+                <input
+                  type="text"
+                  value={level}
+                  onChange={(e) => setLevel(e.target.value)}
+                  placeholder="e.g. Primary, Secondary"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 font-medium"
+                />
               </div>
 
               <div className="space-y-1">

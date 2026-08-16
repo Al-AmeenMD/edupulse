@@ -29,7 +29,6 @@ interface StudentItem {
 interface ClassItem {
   id: string;
   name: string;
-  section?: string | null;
   academicYear: string;
 }
 
@@ -1037,7 +1036,7 @@ export default function FeesManagementPage() {
                     <option value="">Select a class...</option>
                     {classes.map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.name} {c.section ? `(${c.section})` : ""} — {c.academicYear}
+                        {c.name} — {c.academicYear}
                       </option>
                     ))}
                   </select>

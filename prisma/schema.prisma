@@ -129,7 +129,10 @@ model Class {
   schoolId        String
   name            String
   level           String?
-  section         String?
+  division        String?          // RESERVED — do not use. Reserved for future semi-independent
+                                   // sub-schools (e.g. Morning/Afternoon), each with own admin.
+  section         String?          // Nursery/Primary/Secondary grouping — surfaced in UI as "Section".
+                                   // Not yet populated/used by any UI as of this migration.
   teacherId       String?
   academicYear    String
   createdAt       DateTime         @default(now())

@@ -230,7 +230,6 @@ export const GET = withAuth(
                   id: true,
                   name: true,
                   level: true,
-                  section: true,
                   academicYear: true,
                 },
               },

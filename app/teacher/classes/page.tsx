@@ -7,7 +7,6 @@ interface ClassItem {
   id: string;
   name: string;
   level?: string | null;
-  section?: string | null;
   academicYear: string;
   _count?: {
     enrollments?: number;
@@ -106,7 +105,7 @@ export default function MyClassesPage() {
                 {classes.map((cls) => (
                   <tr key={cls.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="px-6 py-4 font-bold text-slate-900">
-                      {cls.name} {cls.section ? `(${cls.section})` : ""}
+                      {cls.name}
                     </td>
                     <td className="px-6 py-4 text-xs text-slate-600 font-medium">
                       {cls.level || "—"}

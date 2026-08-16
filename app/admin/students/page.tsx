@@ -6,7 +6,6 @@ interface ClassItem {
   id: string;
   name: string;
   level?: string | null;
-  section?: string | null;
   academicYear?: string | null;
 }
 
@@ -329,7 +328,7 @@ export default function StudentsPage() {
                 <option value="all">All Classes</option>
                 {classes.map((cls) => (
                   <option key={cls.id} value={cls.id}>
-                    {cls.name} {cls.section ? `(${cls.section})` : ""}
+                    {cls.name}
                   </option>
                 ))}
               </select>

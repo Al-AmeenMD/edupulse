@@ -7,7 +7,6 @@ interface ClassItem {
   id: string;
   name: string;
   level?: string | null;
-  section?: string | null;
   academicYear: string;
   _count?: {
     enrollments?: number;
@@ -264,7 +263,7 @@ export default function TeacherDashboardPage() {
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <h3 className="text-base font-bold text-slate-900">
-                        {cls.name} {cls.section ? `(${cls.section})` : ""}
+                        {cls.name}
                       </h3>
                       {isTodayMarked ? (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
