@@ -163,6 +163,96 @@ export default function FeesManagementPage() {
     setCreateStructureDisplayAmount(formatDisplayAmount(sanitizedRaw));
   };
 
+  // Edit Fee Structure State (FIX-011)
+  const [editingStructure, setEditingStructure] = useState<FeeStructureItem | null>(null);
+  const [editStructureForm, setEditStructureForm] = useState({
+    name: "",
+    type: "TUITION" as FeeType,
+    amount: "",
+    academicYear: "2025/2026",
+    term: "Term 1",
+    dueDate: "",
+  });
+  const [editStructureDisplayAmount, setEditStructureDisplayAmount] = useState("");
+  const [editingStructureSubmitting, setEditingStructureSubmitting] = useState(false);
+
+  const handleEditStructureAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value.replace(/[^0-9.]/g, "");
+    const parts = raw.split(".");
+    const sanitizedRaw = parts.length > 2 
+      ? parts[0] + "." + parts.slice(1).join("") 
+      : raw;
+    setEditStructureForm((prev) => ({ ...prev, amount: sanitizedRaw }));
+    setEditStructureDisplayAmount(formatDisplayAmount(sanitizedRaw));
+  };
+
+  function handleOpenEditStructure(st: FeeStructureItem) {
+    setError("");
+    setSuccessMessage("");
+    setEditingStructure(st);
+    const amountStr = String(st.amount);
+    setEditStructureForm({
+      name: st.name,
+      type: st.type,
+      amount: amountStr,
+      academicYear: st.academicYear,
+      term: st.term || "",
+      dueDate: st.dueDate ? st.dueDate.split("T")[0] : "",
+    });
+    setEditStructureDisplayAmount(formatDisplayAmount(amountStr));
+  }
+
+  // Delete Fee Structure State (FIX-012)
+  const [deletingStructure, setDeletingStructure] = useState<FeeStructureItem | null>(null);
+  const [deletingStructureSubmitting, setDeletingStructureSubmitting] = useState(false);
+
+  function handleDeleteStructureClick(st: FeeStructureItem) {
+    setError("");
+    setSuccessMessage("");
+
+    const assignedCount = st._count?.fees ?? 0;
+    if (assignedCount > 0) {
+      setError(`Cannot delete — ${assignedCount} students are assigned this fee structure. Remove or waive those fees first.`);
+      setTimeout(() => setError(""), 6000);
+      return;
+    }
+
+    setDeletingStructure(st);
+  }
+
+  async function handleDeleteStructureConfirm() {
+    if (!deletingStructure) return;
+    setError("");
+    setSuccessMessage("");
+
+    try {
+      setDeletingStructureSubmitting(true);
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) return;
+
+      const res = await fetch(`/api/fees/structures/${deletingStructure.id}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to delete fee structure.");
+
+      setDeletingStructure(null);
+      setSuccessMessage("Fee structure deleted successfully!");
+      setTimeout(() => setSuccessMessage(""), 4000);
+      fetchStructures();
+    } catch (err: any) {
+      setError(err.message || "An error occurred while deleting fee structure.");
+      setTimeout(() => setError(""), 6000);
+      setDeletingStructure(null);
+    } finally {
+      setDeletingStructureSubmitting(false);
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Data Fetchers
   // ---------------------------------------------------------------------------
@@ -335,6 +425,57 @@ export default function FeesManagementPage() {
       setTimeout(() => setError(""), 4000);
     } finally {
       setCreatingStructure(false);
+    }
+  }
+
+  // Handle Edit Fee Structure (FIX-011)
+  async function handleEditStructureSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!editingStructure) return;
+    setError("");
+    setSuccessMessage("");
+
+    if (!editStructureForm.name.trim() || !editStructureForm.amount || !editStructureForm.dueDate) {
+      setError("Please fill in all required fields.");
+      setTimeout(() => setError(""), 4000);
+      return;
+    }
+
+    try {
+      setEditingStructureSubmitting(true);
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) return;
+
+      const payload = {
+        name: editStructureForm.name.trim(),
+        type: editStructureForm.type,
+        amount: parseFloat(editStructureForm.amount),
+        academicYear: editStructureForm.academicYear.trim(),
+        term: editStructureForm.term.trim() || undefined,
+        dueDate: editStructureForm.dueDate,
+      };
+
+      const res = await fetch(`/api/fees/structures/${editingStructure.id}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update fee structure.");
+
+      setEditingStructure(null);
+      setSuccessMessage(`Fee structure "${payload.name}" updated successfully!`);
+      setTimeout(() => setSuccessMessage(""), 4000);
+      fetchStructures();
+    } catch (err: any) {
+      setError(err.message || "An error occurred while updating fee structure.");
+      setTimeout(() => setError(""), 4000);
+    } finally {
+      setEditingStructureSubmitting(false);
     }
   }
 
@@ -649,15 +790,29 @@ export default function FeesManagementPage() {
                         </span>
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <button
-                          onClick={() => {
-                            setError("");
-                            setAssigningStructure(st);
-                          }}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold text-xs transition-colors cursor-pointer"
-                        >
-                          <span>Assign Fee</span>
-                        </button>
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => {
+                              setError("");
+                              setAssigningStructure(st);
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold text-xs transition-colors cursor-pointer"
+                          >
+                            <span>Assign Fee</span>
+                          </button>
+                          <button
+                            onClick={() => handleOpenEditStructure(st)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
+                          >
+                            <span>Edit</span>
+                          </button>
+                          <button
+                            onClick={() => handleDeleteStructureClick(st)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 font-semibold text-xs transition-colors border border-rose-200/80 cursor-pointer"
+                          >
+                            <span>Delete</span>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -948,6 +1103,189 @@ export default function FeesManagementPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* MODAL 1B: EDIT FEE STRUCTURE (FIX-011)                              */}
+      {/* =================================================================== */}
+      {editingStructure && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-150">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <h3 className="font-bold text-slate-900 text-base">Edit Fee Structure</h3>
+              <button
+                onClick={() => setEditingStructure(null)}
+                className="text-slate-400 hover:text-slate-600 transition-colors p-1"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <form onSubmit={handleEditStructureSubmit} className="p-6 space-y-4">
+              {/* Name */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                  Structure Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. First Term Tuition 2025/2026"
+                  value={editStructureForm.name}
+                  onChange={(e) => setEditStructureForm({ ...editStructureForm, name: e.target.value })}
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                />
+              </div>
+
+              {/* Type & Amount */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                    Fee Type *
+                  </label>
+                  <select
+                    value={editStructureForm.type}
+                    onChange={(e) => setEditStructureForm({ ...editStructureForm, type: e.target.value as FeeType })}
+                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                  >
+                    <option value="TUITION">TUITION</option>
+                    <option value="TRANSPORT">TRANSPORT</option>
+                    <option value="UNIFORM">UNIFORM</option>
+                    <option value="EXAM">EXAM</option>
+                    <option value="MISCELLANEOUS">MISCELLANEOUS</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                    Amount (₦) *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="50,000.00"
+                    value={editStructureDisplayAmount}
+                    onChange={handleEditStructureAmountChange}
+                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* Academic Year & Term */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                    Academic Year *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="2025/2026"
+                    value={editStructureForm.academicYear}
+                    onChange={(e) => setEditStructureForm({ ...editStructureForm, academicYear: e.target.value })}
+                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                    Term
+                  </label>
+                  <select
+                    value={editStructureForm.term}
+                    onChange={(e) => setEditStructureForm({ ...editStructureForm, term: e.target.value })}
+                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                  >
+                    <option value="">None</option>
+                    <option value="Term 1">Term 1</option>
+                    <option value="Term 2">Term 2</option>
+                    <option value="Term 3">Term 3</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Due Date */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                  Due Date *
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={editStructureForm.dueDate}
+                  onChange={(e) => setEditStructureForm({ ...editStructureForm, dueDate: e.target.value })}
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                />
+              </div>
+
+              {/* Actions */}
+              <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingStructure(null)}
+                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 font-semibold text-xs transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={editingStructureSubmitting}
+                  className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {editingStructureSubmitting && (
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  )}
+                  <span>Save Changes</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* MODAL 1C: DELETE FEE STRUCTURE CONFIRMATION (FIX-012)               */}
+      {/* =================================================================== */}
+      {deletingStructure && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-150 p-6 space-y-4">
+            <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+              </svg>
+            </div>
+
+            <div className="text-center space-y-1">
+              <h3 className="font-bold text-slate-900 text-lg">Delete Fee Structure?</h3>
+              <p className="text-xs text-slate-500">
+                Are you sure you want to delete <strong className="text-slate-800">&quot;{deletingStructure.name}&quot;</strong>? This action cannot be undone.
+              </p>
+            </div>
+
+            <div className="pt-4 flex items-center justify-center gap-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setDeletingStructure(null)}
+                className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 font-semibold text-xs transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteStructureConfirm}
+                disabled={deletingStructureSubmitting}
+                className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {deletingStructureSubmitting && (
+                  <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                )}
+                <span>Delete Structure</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
