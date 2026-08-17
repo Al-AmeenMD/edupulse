@@ -18,12 +18,14 @@ export const POST = withAuth(
       const body = (await req.json()) as {
         name?: string;
         level?: string;
+        section?: string;
         teacherId?: string;
         academicYear?: string;
       };
 
       const name = body.name?.trim();
       const level = body.level?.trim() || undefined;
+      const section = body.section?.trim() || undefined;
       const teacherId = body.teacherId?.trim() || undefined;
       const academicYear = body.academicYear?.trim();
 
@@ -72,6 +74,7 @@ export const POST = withAuth(
           schoolId,
           name,
           level,
+          section,
           teacherId,
           academicYear,
         },
