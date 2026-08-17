@@ -34,6 +34,7 @@ export const POST = withAuth(
       }
 
       const body = (await req.json()) as {
+        studentId?: string;
         firstName?: string;
         lastName?: string;
         dateOfBirth?: string;
@@ -87,33 +88,57 @@ export const POST = withAuth(
       }
 
       const admissionLevel = hasLevelToken ? admissionLevelInput : null;
-      const currentYear = new Date().getFullYear();
-      const yearStart = new Date(currentYear, 0, 1);
-      const yearEnd = new Date(currentYear + 1, 0, 1);
+      const manualStudentId = body.studentId?.trim();
+      let studentId: string;
 
-      const whereCount: any = { schoolId };
+      if (manualStudentId) {
+        // Validate manual student ID uniqueness within this school
+        const existing = await prisma.student.findUnique({
+          where: {
+            schoolId_studentId: {
+              schoolId,
+              studentId: manualStudentId,
+            },
+          },
+        });
 
-      if (hasLevelToken) {
-        whereCount.admissionLevel = admissionLevel;
+        if (existing) {
+          return NextResponse.json(
+            { error: "Student ID already exists" },
+            { status: 409 }
+          );
+        }
+
+        studentId = manualStudentId;
+      } else {
+        const currentYear = new Date().getFullYear();
+        const yearStart = new Date(currentYear, 0, 1);
+        const yearEnd = new Date(currentYear + 1, 0, 1);
+
+        const whereCount: any = { schoolId };
+
+        if (hasLevelToken) {
+          whereCount.admissionLevel = admissionLevel;
+        }
+
+        if (hasYearToken) {
+          whereCount.createdAt = {
+            gte: yearStart,
+            lt: yearEnd,
+          };
+        }
+
+        const count = await prisma.student.count({
+          where: whereCount,
+        });
+
+        studentId = generateStudentId(template, {
+          prefix,
+          year: String(currentYear),
+          level: admissionLevel || "",
+          seq: count + 1,
+        });
       }
-
-      if (hasYearToken) {
-        whereCount.createdAt = {
-          gte: yearStart,
-          lt: yearEnd,
-        };
-      }
-
-      const count = await prisma.student.count({
-        where: whereCount,
-      });
-
-      const studentId = generateStudentId(template, {
-        prefix,
-        year: String(currentYear),
-        level: admissionLevel || "",
-        seq: count + 1,
-      });
 
       const student = await prisma.student.create({
         data: {
