@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, FormEvent } from "react";
+import { useEffect, useState, useMemo, useRef, FormEvent } from "react";
 
 // Types
 type FeeType = "TUITION" | "TRANSPORT" | "UNIFORM" | "EXAM" | "MISCELLANEOUS";
@@ -24,6 +24,7 @@ interface StudentItem {
   studentId: string;
   firstName: string;
   lastName: string;
+  admissionLevel?: string | null;
 }
 
 interface ClassItem {
@@ -46,6 +47,13 @@ interface StudentFeeItem {
     studentId: string;
     firstName: string;
     lastName: string;
+    admissionLevel?: string | null;
+    classEnrollments?: Array<{
+      class: {
+        id: string;
+        name: string;
+      };
+    }>;
   };
   feeStructure: {
     id: string;
@@ -89,19 +97,37 @@ export default function FeesManagementPage() {
 
   // Assign Fee Modal State
   const [assigningStructure, setAssigningStructure] = useState<FeeStructureItem | null>(null);
-  const [assignMode, setAssignMode] = useState<"single" | "class">("single");
+  const [assignMode, setAssignMode] = useState<"single" | "class" | "admissionLevel">("single");
   const [students, setStudents] = useState<StudentItem[]>([]);
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [selectedStudentId, setSelectedStudentId] = useState("");
   const [selectedClassId, setSelectedClassId] = useState("");
+  const [selectedAdmissionLevel, setSelectedAdmissionLevel] = useState("");
   const [assigningFee, setAssigningFee] = useState(false);
   const [assignSummary, setAssignSummary] = useState<string | null>(null);
 
-  // Tab 2: Student Fees State
+  // Tab 2: Student Fees State & Filters (FIX-008 & FIX-016)
   const [studentFees, setStudentFees] = useState<StudentFeeItem[]>([]);
   const [loadingStudentFees, setLoadingStudentFees] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  const [classFilter, setClassFilter] = useState<string>("ALL");
+  const [admissionLevelFilter, setAdmissionLevelFilter] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Derived distinct Admission Levels for filters & modals (FIX-016 & FIX-009)
+  const availableLevels = useMemo(() => {
+    const set = new Set<string>();
+    students.forEach((s) => {
+      if (s.admissionLevel?.trim()) set.add(s.admissionLevel.trim());
+    });
+    return Array.from(set).sort();
+  }, [students]);
+
+  // Change Fee Status Modal State (FIX-017)
+  const [changingStatusFee, setChangingStatusFee] = useState<StudentFeeItem | null>(null);
+  const [targetStatus, setTargetStatus] = useState<string>("OVERDUE");
+  const [statusReason, setStatusReason] = useState<string>("");
+  const [submittingStatusChange, setSubmittingStatusChange] = useState<boolean>(false);
 
   // Record Payment Modal State
   const [payingFee, setPayingFee] = useState<StudentFeeItem | null>(null);
@@ -279,6 +305,7 @@ export default function FeesManagementPage() {
   }
 
   // Fetch Students & Classes for Assign Modal
+  // Fetch Students & Classes for Assign Modal & Filters
   async function fetchStudentsAndClasses() {
     try {
       const token = localStorage.getItem("edupulse_token");
@@ -291,7 +318,8 @@ export default function FeesManagementPage() {
 
       if (studentsRes.ok) {
         const sData = await studentsRes.json();
-        setStudents(sData.data || []);
+        const studentList: StudentItem[] = sData.data || [];
+        setStudents(studentList);
       }
       if (classesRes.ok) {
         const cData = await classesRes.json();
@@ -302,8 +330,13 @@ export default function FeesManagementPage() {
     }
   }
 
-  // Fetch Student Fees with Search & Status Filter
-  async function fetchStudentFees(query: string = searchQuery, status: string = statusFilter) {
+  // Fetch Student Fees with Search, Status, Class & Admission Level Filters (FIX-008 & FIX-016)
+  async function fetchStudentFees(
+    query: string = searchQuery,
+    status: string = statusFilter,
+    classId: string = classFilter,
+    admLevel: string = admissionLevelFilter
+  ) {
     if (searchAbortControllerRef.current) {
       searchAbortControllerRef.current.abort();
     }
@@ -316,6 +349,8 @@ export default function FeesManagementPage() {
 
       const params = new URLSearchParams();
       if (status !== "ALL") params.append("status", status);
+      if (classId !== "ALL") params.append("classId", classId);
+      if (admLevel !== "ALL") params.append("admissionLevel", admLevel);
 
       const url = `/api/fees?${params.toString()}`;
 
@@ -355,14 +390,14 @@ export default function FeesManagementPage() {
 
   useEffect(() => {
     if (activeTab === "student_fees") {
-      fetchStudentFees();
+      fetchStudentFees(searchQuery, statusFilter, classFilter, admissionLevelFilter);
     }
-  }, [activeTab, statusFilter]);
+  }, [activeTab, statusFilter, classFilter, admissionLevelFilter]);
 
   function handleSearchChange(e: React.ChangeEvent<HTMLInputElement>) {
     const q = e.target.value;
     setSearchQuery(q);
-    fetchStudentFees(q, statusFilter);
+    fetchStudentFees(q, statusFilter, classFilter, admissionLevelFilter);
   }
 
   // ---------------------------------------------------------------------------
@@ -479,7 +514,7 @@ export default function FeesManagementPage() {
     }
   }
 
-  // Handle Assign Fee (Single or Bulk)
+  // Handle Assign Fee (Single, Class, or Admission Level)
   async function handleAssignFeeSubmit(e: FormEvent) {
     e.preventDefault();
     if (!assigningStructure) return;
@@ -497,6 +532,11 @@ export default function FeesManagementPage() {
       setTimeout(() => setError(""), 4000);
       return;
     }
+    if (assignMode === "admissionLevel" && !selectedAdmissionLevel) {
+      setError("Please select an admission level to assign this fee.");
+      setTimeout(() => setError(""), 4000);
+      return;
+    }
 
     try {
       setAssigningFee(true);
@@ -505,7 +545,11 @@ export default function FeesManagementPage() {
 
       const payload = {
         feeStructureId: assigningStructure.id,
-        ...(assignMode === "single" ? { studentId: selectedStudentId } : { classId: selectedClassId }),
+        ...(assignMode === "single"
+          ? { studentId: selectedStudentId }
+          : assignMode === "class"
+          ? { classId: selectedClassId }
+          : { admissionLevel: selectedAdmissionLevel }),
       };
 
       const res = await fetch("/api/fees", {
@@ -520,9 +564,9 @@ export default function FeesManagementPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to assign fee.");
 
-      if (assignMode === "class" && data.summary) {
+      if ((assignMode === "class" || assignMode === "admissionLevel") && data.summary) {
         setSuccessMessage(
-          `Fee assigned to class! Assigned: ${data.summary.assigned}, Skipped (Already Assigned): ${data.summary.skipped}`
+          `Fee assigned to ${assignMode === "class" ? "class" : "admission level"}! Assigned: ${data.summary.assigned}, Skipped (Already Assigned): ${data.summary.skipped}`
         );
       } else {
         setSuccessMessage("Fee structure assigned successfully!");
@@ -532,6 +576,7 @@ export default function FeesManagementPage() {
       setAssigningStructure(null);
       setSelectedStudentId("");
       setSelectedClassId("");
+      setSelectedAdmissionLevel("");
       fetchStructures();
       if (activeTab === "student_fees") fetchStudentFees();
     } catch (err: any) {
@@ -539,6 +584,69 @@ export default function FeesManagementPage() {
       setTimeout(() => setError(""), 4000);
     } finally {
       setAssigningFee(false);
+    }
+  }
+
+  // Handle Manual Fee Status Change (FIX-017)
+  function handleOpenChangeStatus(fee: StudentFeeItem) {
+    setError("");
+    setSuccessMessage("");
+    if (fee.status === "PAID") {
+      setError("Cannot manually change status of a fully paid fee. Fully paid fees are locked to preserve payment audit integrity.");
+      setTimeout(() => setError(""), 6000);
+      return;
+    }
+    setChangingStatusFee(fee);
+    let defaultTarget = "PENDING";
+    if (fee.status === "PENDING") defaultTarget = "OVERDUE";
+    else if (fee.status === "OVERDUE") defaultTarget = "PENDING";
+    else if (fee.status === "WAIVED") defaultTarget = "PENDING";
+    else if (fee.status === "PARTIAL") defaultTarget = "PENDING";
+    setTargetStatus(defaultTarget);
+    setStatusReason("");
+  }
+
+  async function handleChangeStatusSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!changingStatusFee) return;
+    setError("");
+    setSuccessMessage("");
+
+    if (!statusReason.trim()) {
+      setError("A reason is required when changing fee status.");
+      setTimeout(() => setError(""), 4000);
+      return;
+    }
+
+    try {
+      setSubmittingStatusChange(true);
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) return;
+
+      const res = await fetch(`/api/fees/${changingStatusFee.id}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          status: targetStatus,
+          note: statusReason.trim(),
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update fee status.");
+
+      setChangingStatusFee(null);
+      setSuccessMessage(`Fee status updated to ${targetStatus} successfully!`);
+      setTimeout(() => setSuccessMessage(""), 4000);
+      fetchStudentFees();
+    } catch (err: any) {
+      setError(err.message || "An error occurred while updating fee status.");
+      setTimeout(() => setError(""), 4000);
+    } finally {
+      setSubmittingStatusChange(false);
     }
   }
 
@@ -830,22 +938,53 @@ export default function FeesManagementPage() {
         <div className="space-y-6">
           {/* Controls & Filter Bar */}
           <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-            {/* Search Input */}
-            <div className="relative flex-1 max-w-md">
-              <svg className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-              </svg>
-              <input
-                type="text"
-                placeholder="Search by student name or ID..."
-                value={searchQuery}
-                onChange={handleSearchChange}
-                className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
-              />
+            {/* Search Input & Filters Bar */}
+            <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-3">
+              {/* Search Input */}
+              <div className="relative flex-1 max-w-md">
+                <svg className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Search by student name or ID..."
+                  value={searchQuery}
+                  onChange={handleSearchChange}
+                  className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
+                />
+              </div>
+
+              {/* Class Filter Dropdown (FIX-008) */}
+              <select
+                value={classFilter}
+                onChange={(e) => setClassFilter(e.target.value)}
+                className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
+              >
+                <option value="ALL">All Classes</option>
+                {classes.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+
+              {/* Admission Level Filter Dropdown (FIX-016) */}
+              <select
+                value={admissionLevelFilter}
+                onChange={(e) => setAdmissionLevelFilter(e.target.value)}
+                className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
+              >
+                <option value="ALL">All Admission Levels</option>
+                {availableLevels.map((lvl) => (
+                  <option key={lvl} value={lvl}>
+                    {lvl}
+                  </option>
+                ))}
+              </select>
             </div>
 
             {/* Status Filter Pills */}
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5 pt-2 md:pt-0">
               {["ALL", "PENDING", "PAID", "OVERDUE", "PARTIAL", "WAIVED"].map((st) => (
                 <button
                   key={st}
@@ -899,9 +1038,12 @@ export default function FeesManagementPage() {
                         <tr key={fee.id} className="hover:bg-slate-50/60 transition-colors">
                           <td className="px-6 py-4 font-bold text-slate-900">
                             <div>{fee.student.firstName} {fee.student.lastName}</div>
-                            <span className="text-[11px] font-mono text-slate-400 font-normal">
+                            <div className="text-[11px] font-mono text-slate-400 font-normal">
                               {fee.student.studentId}
-                            </span>
+                            </div>
+                            <div className="text-xs text-blue-600 font-semibold mt-0.5">
+                              {fee.student.classEnrollments?.[0]?.class?.name || "—"}
+                            </div>
                           </td>
                           <td className="px-6 py-4 text-xs font-medium text-slate-700">
                             {fee.feeStructure.name}
@@ -920,35 +1062,32 @@ export default function FeesManagementPage() {
                           </td>
                           <td className="px-6 py-4 text-right space-x-2">
                             {!isFullyPaid && (
-                              <>
-                                <button
-                                  onClick={() => {
-                                    setError("");
-                                    setPayingFee(fee);
-                                    const remaining = parseFloat(String(fee.amountDue)) - parseFloat(String(fee.amountPaid));
-                                    const raw = remaining > 0 ? String(remaining) : "";
-                                    setRawAmount(raw);
-                                    setPaymentForm({
-                                      amount: raw,
-                                      method: "cash",
-                                      reference: "",
-                                    });
-                                    setDisplayAmount(formatDisplayAmount(raw));
-                                  }}
-                                  className="inline-flex items-center px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-2xs transition-colors cursor-pointer"
-                                >
-                                  Record Payment
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setError("");
-                                    setWaivingFee(fee);
-                                  }}
-                                  className="inline-flex items-center px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
-                                >
-                                  Waive
-                                </button>
-                              </>
+                              <button
+                                onClick={() => {
+                                  setError("");
+                                  setPayingFee(fee);
+                                  const remaining = parseFloat(String(fee.amountDue)) - parseFloat(String(fee.amountPaid));
+                                  const raw = remaining > 0 ? String(remaining) : "";
+                                  setRawAmount(raw);
+                                  setPaymentForm({
+                                    amount: raw,
+                                    method: "cash",
+                                    reference: "",
+                                  });
+                                  setDisplayAmount(formatDisplayAmount(raw));
+                                }}
+                                className="inline-flex items-center px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-2xs transition-colors cursor-pointer"
+                              >
+                                Record Payment
+                              </button>
+                            )}
+                            {fee.status !== "PAID" && (
+                              <button
+                                onClick={() => handleOpenChangeStatus(fee)}
+                                className="inline-flex items-center px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
+                              >
+                                Change Status
+                              </button>
                             )}
                           </td>
                         </tr>
@@ -1317,7 +1456,7 @@ export default function FeesManagementPage() {
                 <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
                   Assignment Target
                 </label>
-                <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl text-xs font-bold">
+                <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 rounded-xl text-xs font-bold">
                   <button
                     type="button"
                     onClick={() => setAssignMode("single")}
@@ -1335,6 +1474,15 @@ export default function FeesManagementPage() {
                     }`}
                   >
                     Entire Class
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAssignMode("admissionLevel")}
+                    className={`py-2 rounded-lg transition-all ${
+                      assignMode === "admissionLevel" ? "bg-white text-slate-900 shadow-2xs" : "text-slate-600"
+                    }`}
+                  >
+                    By Admission Level
                   </button>
                 </div>
               </div>
@@ -1381,6 +1529,27 @@ export default function FeesManagementPage() {
                 </div>
               )}
 
+              {/* Option 3: By Admission Level (FIX-009 / FIX-014) */}
+              {assignMode === "admissionLevel" && (
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                    Select Admission Level *
+                  </label>
+                  <select
+                    value={selectedAdmissionLevel}
+                    onChange={(e) => setSelectedAdmissionLevel(e.target.value)}
+                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                  >
+                    <option value="">Select an admission level...</option>
+                    {availableLevels.map((lvl) => (
+                      <option key={lvl} value={lvl}>
+                        {lvl}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               {/* Actions */}
               <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-100">
                 <button
@@ -1399,6 +1568,116 @@ export default function FeesManagementPage() {
                     <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   )}
                   <span>Assign Fee</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* MODAL 5: CHANGE FEE STATUS (FIX-017)                                */}
+      {/* =================================================================== */}
+      {changingStatusFee && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-150">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div>
+                <h3 className="font-bold text-slate-900 text-base">Change Fee Status</h3>
+                <p className="text-xs text-slate-500">
+                  {changingStatusFee.student.firstName} {changingStatusFee.student.lastName} ({changingStatusFee.feeStructure.name})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setChangingStatusFee(null)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <form onSubmit={handleChangeStatusSubmit} className="p-6 space-y-4">
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1 font-medium">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Current Status:</span>
+                  <span>{renderStatusBadge(changingStatusFee.status)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Amount Due:</span>
+                  <strong className="text-slate-900">{formatNaira(changingStatusFee.amountDue)}</strong>
+                </div>
+              </div>
+
+              {/* Target Status Select */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                  New Status *
+                </label>
+                <select
+                  value={targetStatus}
+                  onChange={(e) => setTargetStatus(e.target.value)}
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
+                >
+                  {changingStatusFee.status === "PENDING" && (
+                    <>
+                      <option value="OVERDUE">OVERDUE</option>
+                      <option value="WAIVED">WAIVED</option>
+                    </>
+                  )}
+                  {changingStatusFee.status === "OVERDUE" && (
+                    <>
+                      <option value="PENDING">PENDING</option>
+                      <option value="WAIVED">WAIVED</option>
+                    </>
+                  )}
+                  {changingStatusFee.status === "WAIVED" && (
+                    <>
+                      <option value="PENDING">PENDING</option>
+                      <option value="OVERDUE">OVERDUE</option>
+                    </>
+                  )}
+                  {changingStatusFee.status === "PARTIAL" && (
+                    <option value="PENDING">PENDING</option>
+                  )}
+                </select>
+              </div>
+
+              {/* Reason Input */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                  Reason for Status Change *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Correcting status after administrative review..."
+                  value={statusReason}
+                  onChange={(e) => setStatusReason(e.target.value)}
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                />
+              </div>
+
+              {/* Actions */}
+              <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setChangingStatusFee(null)}
+                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 font-semibold text-xs transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingStatusChange}
+                  className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {submittingStatusChange && (
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  )}
+                  <span>Update Status</span>
                 </button>
               </div>
             </form>

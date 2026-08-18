@@ -24,11 +24,13 @@ export const POST = withAuth(
         feeStructureId?: string;
         studentId?: string;
         classId?: string;
+        admissionLevel?: string;
       };
 
       const feeStructureId = body.feeStructureId?.trim();
       const studentId = body.studentId?.trim();
       const classId = body.classId?.trim();
+      const admissionLevel = body.admissionLevel?.trim();
 
       // --- Required field validation ---
       if (!feeStructureId) {
@@ -38,9 +40,9 @@ export const POST = withAuth(
         );
       }
 
-      if (!studentId && !classId) {
+      if (!studentId && !classId && !admissionLevel) {
         return NextResponse.json(
-          { error: "Either studentId or classId is required" },
+          { error: "Either studentId, classId, or admissionLevel is required" },
           { status: 400 }
         );
       }
@@ -69,7 +71,7 @@ export const POST = withAuth(
       // -----------------------------------------------------------------
       // Option 1: Single student assignment
       // -----------------------------------------------------------------
-      if (studentId && !classId) {
+      if (studentId && !classId && !admissionLevel) {
         // Verify student belongs to this school
         const student = await prisma.student.findFirst({
           where: { id: studentId, schoolId },
@@ -115,6 +117,12 @@ export const POST = withAuth(
                 studentId: true,
                 firstName: true,
                 lastName: true,
+                admissionLevel: true,
+                classEnrollments: {
+                  select: { class: { select: { id: true, name: true } } },
+                  take: 1,
+                  orderBy: { enrolledAt: "desc" },
+                },
               },
             },
             feeStructure: {
@@ -135,7 +143,7 @@ export const POST = withAuth(
       // -----------------------------------------------------------------
       // Option 2: Bulk assign to all students enrolled in a class
       // -----------------------------------------------------------------
-      if (classId) {
+      if (classId && !admissionLevel) {
         // Verify class belongs to this school
         const classRecord = await prisma.class.findFirst({
           where: { id: classId, schoolId },
@@ -206,6 +214,12 @@ export const POST = withAuth(
                   studentId: true,
                   firstName: true,
                   lastName: true,
+                  admissionLevel: true,
+                  classEnrollments: {
+                    select: { class: { select: { id: true, name: true } } },
+                    take: 1,
+                    orderBy: { enrolledAt: "desc" },
+                  },
                 },
               },
               feeStructure: {
@@ -227,7 +241,7 @@ export const POST = withAuth(
           {
             data: createdFees,
             summary: {
-              totalEnrolled: enrolledStudentIds.length,
+              totalStudents: enrolledStudentIds.length,
               assigned: createdFees.length,
               skipped: alreadyAssigned.size,
             },
@@ -236,9 +250,108 @@ export const POST = withAuth(
         );
       }
 
-      // Should never reach here, but safety net
+      // -----------------------------------------------------------------
+      // Option 3: Bulk assign by Admission Level (FIX-009 / FIX-014)
+      // -----------------------------------------------------------------
+      if (admissionLevel) {
+        // Find active students in this school with matching admissionLevel
+        const matchingStudents = await prisma.student.findMany({
+          where: {
+            schoolId,
+            admissionLevel,
+          },
+          select: { id: true },
+        });
+
+        if (matchingStudents.length === 0) {
+          return NextResponse.json(
+            { error: `No active students found with admission level '${admissionLevel}'` },
+            { status: 400 }
+          );
+        }
+
+        const eligibleStudentIds = matchingStudents.map((s) => s.id);
+
+        // Find students who already have a fee for this structure (to skip)
+        const existingFees = await prisma.fee.findMany({
+          where: {
+            schoolId,
+            feeStructureId,
+            studentId: { in: eligibleStudentIds },
+          },
+          select: { studentId: true },
+        });
+
+        const alreadyAssigned = new Set(existingFees.map((f) => f.studentId));
+
+        // Filter to only students without an existing fee
+        const newStudentIds = eligibleStudentIds.filter(
+          (id) => !alreadyAssigned.has(id)
+        );
+
+        if (newStudentIds.length === 0) {
+          return NextResponse.json(
+            { error: `Fee structure already assigned to all students with admission level '${admissionLevel}'` },
+            { status: 409 }
+          );
+        }
+
+        // Bulk create in a transaction
+        const createOperations = newStudentIds.map((sid) =>
+          prisma.fee.create({
+            data: {
+              schoolId,
+              studentId: sid,
+              feeStructureId,
+              amountDue,
+              dueDate,
+              status: "PENDING",
+            },
+            include: {
+              student: {
+                select: {
+                  id: true,
+                  studentId: true,
+                  firstName: true,
+                  lastName: true,
+                  admissionLevel: true,
+                  classEnrollments: {
+                    select: { class: { select: { id: true, name: true } } },
+                    take: 1,
+                    orderBy: { enrolledAt: "desc" },
+                  },
+                },
+              },
+              feeStructure: {
+                select: {
+                  id: true,
+                  name: true,
+                  type: true,
+                  academicYear: true,
+                  term: true,
+                },
+              },
+            },
+          })
+        );
+
+        const createdFees = await prisma.$transaction(createOperations);
+
+        return NextResponse.json(
+          {
+            data: createdFees,
+            summary: {
+              totalStudents: eligibleStudentIds.length,
+              assigned: createdFees.length,
+              skipped: alreadyAssigned.size,
+            },
+          },
+          { status: 201 }
+        );
+      }
+
       return NextResponse.json(
-        { error: "Either studentId or classId is required" },
+        { error: "Either studentId, classId, or admissionLevel is required" },
         { status: 400 }
       );
     } catch {
@@ -271,6 +384,8 @@ export const GET = withAuth(
       const status = searchParams.get("status");
       const feeStructureId = searchParams.get("feeStructureId");
       const academicYear = searchParams.get("academicYear");
+      const classId = searchParams.get("classId");
+      const admissionLevel = searchParams.get("admissionLevel");
 
       // Build where clause
       const where: Record<string, unknown> = { schoolId };
@@ -291,7 +406,14 @@ export const GET = withAuth(
         where.feeStructure = { academicYear };
       }
 
-      const fees = await prisma.fee.findMany({
+      if (admissionLevel) {
+        where.student = {
+          ...(where.student as object || {}),
+          admissionLevel,
+        };
+      }
+
+      let fees = await prisma.fee.findMany({
         where,
         orderBy: { dueDate: "asc" },
         include: {
@@ -301,6 +423,19 @@ export const GET = withAuth(
               studentId: true,
               firstName: true,
               lastName: true,
+              admissionLevel: true,
+              classEnrollments: {
+                select: {
+                  class: {
+                    select: {
+                      id: true,
+                      name: true,
+                    },
+                  },
+                },
+                take: 1,
+                orderBy: { enrolledAt: "desc" },
+              },
             },
           },
           feeStructure: {
@@ -315,6 +450,13 @@ export const GET = withAuth(
           },
         },
       });
+
+      // Filter by current active class if classId filter provided (FIX-008 & FIX-015)
+      if (classId) {
+        fees = fees.filter(
+          (f) => f.student?.classEnrollments?.[0]?.class?.id === classId
+        );
+      }
 
       return NextResponse.json({ data: fees }, { status: 200 });
     } catch {

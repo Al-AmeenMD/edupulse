@@ -9,6 +9,14 @@ type RouteContext = {
   }>;
 };
 
+// Map of allowed target statuses per current status for manual status corrections (FIX-017)
+const ALLOWED_TRANSITIONS: Record<string, string[]> = {
+  PENDING: ["OVERDUE", "WAIVED"],
+  OVERDUE: ["PENDING", "WAIVED"],
+  WAIVED: ["PENDING", "OVERDUE"],
+  PARTIAL: ["PENDING"],
+};
+
 // ---------------------------------------------------------------------------
 // GET /api/fees/:id — Get fee details
 // ---------------------------------------------------------------------------
@@ -37,6 +45,16 @@ export const GET = withAuth(
               studentId: true,
               firstName: true,
               lastName: true,
+              admissionLevel: true,
+              classEnrollments: {
+                select: {
+                  class: {
+                    select: { id: true, name: true },
+                  },
+                },
+                take: 1,
+                orderBy: { enrolledAt: "desc" },
+              },
             },
           },
           feeStructure: {
@@ -74,7 +92,7 @@ export const GET = withAuth(
 );
 
 // ---------------------------------------------------------------------------
-// PATCH /api/fees/:id — Update note or waive/overdue a fee
+// PATCH /api/fees/:id — Update note or manual status correction (FIX-017)
 // ---------------------------------------------------------------------------
 export const PATCH = withAuth(
   async (req, context) => {
@@ -104,6 +122,7 @@ export const PATCH = withAuth(
           id: true,
           schoolId: true,
           status: true,
+          note: true,
         },
       });
 
@@ -114,19 +133,24 @@ export const PATCH = withAuth(
         );
       }
 
-      // Build the update data
+      // Build update payload
       const updateData: Record<string, unknown> = {};
-
-      // --- Note can always be updated ---
-      if (body.note !== undefined) {
-        updateData.note = body.note.trim() || null;
-      }
 
       // --- Status change logic ---
       if (body.status !== undefined) {
         const newStatus = body.status.trim().toUpperCase();
+        const currentStatus = fee.status;
 
-        // Cannot manually set status to PAID — only payments do that
+        // Reason validation: note/reason must be a non-empty string when status changes
+        const reason = body.note?.trim();
+        if (!reason || reason.length === 0) {
+          return NextResponse.json(
+            { error: "A reason is required when changing fee status" },
+            { status: 400 }
+          );
+        }
+
+        // Rejection rule 1: Target status is PAID
         if (newStatus === "PAID") {
           return NextResponse.json(
             { error: "Cannot manually set status to PAID. Record a payment instead." },
@@ -134,7 +158,7 @@ export const PATCH = withAuth(
           );
         }
 
-        // Cannot set status to PARTIAL — only payments do that
+        // Rejection rule 2: Target status is PARTIAL
         if (newStatus === "PARTIAL") {
           return NextResponse.json(
             { error: "Cannot manually set status to PARTIAL. Record a payment instead." },
@@ -142,62 +166,28 @@ export const PATCH = withAuth(
           );
         }
 
-        // Cannot set status to PENDING — use this only as a reset, not exposed
-        if (newStatus === "PENDING") {
+        // Rejection rule 3: Source status is PAID
+        if (currentStatus === "PAID") {
           return NextResponse.json(
-            { error: "Cannot manually set status to PENDING" },
+            { error: "Cannot manually change status of a fully paid fee. Fully paid fees are locked to preserve payment audit integrity." },
             { status: 400 }
           );
         }
 
-        if (newStatus === "WAIVED") {
-          // Can only waive if PENDING or PARTIAL
-          if (fee.status === "PAID") {
-            return NextResponse.json(
-              { error: "Cannot waive a fully paid fee" },
-              { status: 400 }
-            );
-          }
-          if (fee.status === "WAIVED") {
-            return NextResponse.json(
-              { error: "Fee is already waived" },
-              { status: 400 }
-            );
-          }
-          if (fee.status !== "PENDING" && fee.status !== "PARTIAL" && fee.status !== "OVERDUE") {
-            return NextResponse.json(
-              { error: "Fee can only be waived when PENDING, PARTIAL, or OVERDUE" },
-              { status: 400 }
-            );
-          }
-          updateData.status = "WAIVED";
-        } else if (newStatus === "OVERDUE") {
-          // Can only mark overdue if PENDING or PARTIAL
-          if (fee.status === "PAID") {
-            return NextResponse.json(
-              { error: "Cannot mark a fully paid fee as overdue" },
-              { status: 400 }
-            );
-          }
-          if (fee.status === "WAIVED") {
-            return NextResponse.json(
-              { error: "Cannot mark a waived fee as overdue" },
-              { status: 400 }
-            );
-          }
-          if (fee.status !== "PENDING" && fee.status !== "PARTIAL") {
-            return NextResponse.json(
-              { error: "Fee can only be marked overdue when PENDING or PARTIAL" },
-              { status: 400 }
-            );
-          }
-          updateData.status = "OVERDUE";
-        } else {
+        // Check transition matrix
+        const allowedTargets = ALLOWED_TRANSITIONS[currentStatus] || [];
+        if (!allowedTargets.includes(newStatus)) {
           return NextResponse.json(
-            { error: `Invalid status: ${body.status}. Allowed values: WAIVED, OVERDUE` },
+            { error: `Status transition from ${currentStatus} to ${newStatus} is not allowed.` },
             { status: 400 }
           );
         }
+
+        updateData.status = newStatus;
+        updateData.note = reason;
+      } else if (body.note !== undefined) {
+        // Simple note update without status change
+        updateData.note = body.note.trim() || null;
       }
 
       // --- Nothing to update ---
@@ -218,6 +208,14 @@ export const PATCH = withAuth(
               studentId: true,
               firstName: true,
               lastName: true,
+              admissionLevel: true,
+              classEnrollments: {
+                select: {
+                  class: { select: { id: true, name: true } },
+                },
+                take: 1,
+                orderBy: { enrolledAt: "desc" },
+              },
             },
           },
           feeStructure: {
