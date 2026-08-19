@@ -4,5 +4,5 @@ const nextConfig: NextConfig = {
   /* config options here */
 };
 
-// Reload config: 2026-08-14-fees-task-029
+// Reload config: 2026-08-19-finance-admin-task-002
 export default nextConfig;
