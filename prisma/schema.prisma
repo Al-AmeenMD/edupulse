@@ -37,6 +37,7 @@ model School {
 enum Role {
   SUPER_ADMIN
   SCHOOL_ADMIN
+  FINANCE_ADMIN
   TEACHER
   PARENT
   STUDENT
