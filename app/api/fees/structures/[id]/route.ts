@@ -1,4 +1,4 @@
-import { FeeType, Role } from "@prisma/client";
+import { FeeType, Prisma, Role } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/middleware/withAuth";
 import { prisma } from "@/lib/prisma";
@@ -64,7 +64,7 @@ export const PATCH = withAuth(
       const body = (await req.json()) as {
         name?: string;
         type?: string;
-        amount?: number;
+        amount?: string | number;
         academicYear?: string;
         term?: string;
         dueDate?: string;
@@ -72,7 +72,7 @@ export const PATCH = withAuth(
 
       const name = body.name?.trim();
       const type = body.type?.trim();
-      const amount = body.amount;
+      const amountRaw = body.amount !== undefined && body.amount !== null ? String(body.amount).trim() : "";
       const academicYear = body.academicYear?.trim();
       const term = body.term !== undefined ? (body.term?.trim() || null) : existingStructure.term;
       const dueDateRaw = body.dueDate?.trim();
@@ -101,7 +101,23 @@ export const PATCH = withAuth(
         );
       }
 
-      if (amount === undefined || amount === null || typeof amount !== "number" || isNaN(amount) || amount <= 0) {
+      if (!amountRaw) {
+        return NextResponse.json(
+          { error: "amount is required" },
+          { status: 400 }
+        );
+      }
+
+      let amountDecimal: Prisma.Decimal;
+      try {
+        if (!/^\d+(\.\d+)?$/.test(amountRaw)) {
+          throw new Error("Invalid decimal string");
+        }
+        amountDecimal = new Prisma.Decimal(amountRaw);
+        if (!amountDecimal.isPositive() || amountDecimal.isZero()) {
+          throw new Error("Amount must be positive");
+        }
+      } catch {
         return NextResponse.json(
           { error: "amount must be a positive number" },
           { status: 400 }
@@ -125,7 +141,7 @@ export const PATCH = withAuth(
         data: {
           name,
           type: type as FeeType,
-          amount,
+          amount: amountDecimal,
           academicYear,
           term,
           dueDate,
@@ -146,7 +162,7 @@ export const PATCH = withAuth(
       );
     }
   },
-  [Role.SCHOOL_ADMIN]
+  [Role.SCHOOL_ADMIN, Role.FINANCE_ADMIN]
 );
 
 // ---------------------------------------------------------------------------

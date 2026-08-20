@@ -484,7 +484,7 @@ export default function FeesManagementPage() {
       const payload = {
         name: editStructureForm.name.trim(),
         type: editStructureForm.type,
-        amount: parseFloat(editStructureForm.amount),
+        amount: editStructureForm.amount.trim(),
         academicYear: editStructureForm.academicYear.trim(),
         term: editStructureForm.term.trim() || undefined,
         dueDate: editStructureForm.dueDate,
