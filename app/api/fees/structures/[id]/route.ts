@@ -210,12 +210,13 @@ export const DELETE = withAuth(
         );
       }
 
-      // 2. Server-side guard check: Block deletion if students are assigned
+      // 2. Server-side guard check: Block deletion if fee records are assigned
       const assignedCount = structure._count?.fees ?? 0;
       if (assignedCount > 0) {
         return NextResponse.json(
           {
-            error: `Cannot delete — ${assignedCount} students are assigned this fee structure. Remove or waive those fees first.`,
+            error: "Cannot delete this fee structure because it has existing fee records.",
+            count: assignedCount,
           },
           { status: 400 }
         );
@@ -227,7 +228,11 @@ export const DELETE = withAuth(
       });
 
       return NextResponse.json(
-        { message: "Fee structure deleted successfully" },
+        {
+          data: {
+            message: "Fee structure deleted successfully",
+          },
+        },
         { status: 200 }
       );
     } catch (err: any) {
@@ -238,5 +243,5 @@ export const DELETE = withAuth(
       );
     }
   },
-  [Role.SCHOOL_ADMIN]
+  [Role.SCHOOL_ADMIN, Role.FINANCE_ADMIN]
 );

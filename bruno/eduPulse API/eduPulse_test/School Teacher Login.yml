@@ -1,21 +1,21 @@
 info:
-  name: Finance Admin Creation
+  name: School Teacher Login
   type: http
-  seq: 3
+  seq: 7
 
 http:
   method: POST
-  url: http://localhost:3000/api/auth/login
+  url: "{{base_url}}/api/auth/login"
   body:
     type: json
     data: |-
       {
-        "email": "zainab@zenithacademy.com",
-        "password": "Finance@123"
+        "email": "admin@zenithacademy.com",
+        "password": "Admin@12345"
       }
   auth:
     type: bearer
-    token: "{{finance_admin_token}}"
+    token: "{{teacher_token}}"
 
 settings:
   encodeUrl: true

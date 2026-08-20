@@ -267,7 +267,7 @@ export default function FeesManagementPage() {
       if (!res.ok) throw new Error(data.error || "Failed to delete fee structure.");
 
       setDeletingStructure(null);
-      setSuccessMessage("Fee structure deleted successfully!");
+      setSuccessMessage(data.data?.message || "Fee structure deleted successfully!");
       setTimeout(() => setSuccessMessage(""), 4000);
       fetchStructures();
     } catch (err: any) {
