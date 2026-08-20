@@ -64,6 +64,18 @@ interface StudentFeeItem {
   };
 }
 
+interface PaymentItem {
+  id: string;
+  feeId: string;
+  schoolId: string;
+  receiptNumber: string;
+  amount: number | string;
+  method: string;
+  reference?: string | null;
+  recordedBy: string;
+  paidAt: string;
+}
+
 // Helper currency/number formatters for Nigerian Naira (₦)
 function formatAmount(amount: number | string): string {
   const num = typeof amount === "number" ? amount : parseFloat(amount) || 0;
@@ -231,6 +243,66 @@ export default function FeesManagementPage() {
   // Delete Fee Structure State (FIX-012)
   const [deletingStructure, setDeletingStructure] = useState<FeeStructureItem | null>(null);
   const [deletingStructureSubmitting, setDeletingStructureSubmitting] = useState(false);
+
+  // Payment Receipts Modal State (FIX-010)
+  const [viewingReceiptsFee, setViewingReceiptsFee] = useState<StudentFeeItem | null>(null);
+  const [feePayments, setFeePayments] = useState<PaymentItem[]>([]);
+  const [loadingFeePayments, setLoadingFeePayments] = useState(false);
+  const [downloadingPaymentId, setDownloadingPaymentId] = useState<string | null>(null);
+
+  async function handleOpenViewReceipts(fee: StudentFeeItem) {
+    setError("");
+    setSuccessMessage("");
+    setViewingReceiptsFee(fee);
+    setFeePayments([]);
+    try {
+      setLoadingFeePayments(true);
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) return;
+      const res = await fetch(`/api/fees/${fee.id}/payments`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to fetch payments.");
+      setFeePayments(data.data?.payments || []);
+    } catch (err: any) {
+      setError(err.message || "Failed to load payment receipts.");
+    } finally {
+      setLoadingFeePayments(false);
+    }
+  }
+
+  async function handleDownloadReceipt(feeId: string, paymentId: string, receiptNumber: string) {
+    setError("");
+    try {
+      setDownloadingPaymentId(paymentId);
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) return;
+
+      const res = await fetch(`/api/fees/${feeId}/payments/${paymentId}/receipt`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || "Failed to download receipt.");
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `receipt-${receiptNumber.replace(/\//g, "-")}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err: any) {
+      setError(err.message || "An error occurred while downloading receipt.");
+    } finally {
+      setDownloadingPaymentId(null);
+    }
+  }
 
   function handleDeleteStructureClick(st: FeeStructureItem) {
     setError("");
@@ -687,12 +759,14 @@ export default function FeesManagementPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to record payment.");
 
+      const createdPayment = data.data?.payment;
       setPayingFee(null);
       setPaymentForm({ amount: "", method: "cash", reference: "" });
       setRawAmount("");
       setDisplayAmount("");
-      setSuccessMessage(`Payment of ${formatNaira(payAmount)} recorded successfully!`);
-      setTimeout(() => setSuccessMessage(""), 4000);
+      const receiptMsg = createdPayment?.receiptNumber ? ` (Receipt: ${createdPayment.receiptNumber})` : "";
+      setSuccessMessage(`Payment of ${formatNaira(payAmount)} recorded successfully!${receiptMsg}`);
+      setTimeout(() => setSuccessMessage(""), 5000);
       fetchStudentFees();
     } catch (err: any) {
       setError(err.message || "An error occurred while recording payment.");
@@ -1061,6 +1135,17 @@ export default function FeesManagementPage() {
                             {new Date(fee.dueDate).toLocaleDateString()}
                           </td>
                           <td className="px-6 py-4 text-right space-x-2">
+                            {Number(fee.amountPaid) > 0 && (
+                              <button
+                                onClick={() => handleOpenViewReceipts(fee)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-blue-200 bg-blue-50/60 hover:bg-blue-100/80 text-blue-700 font-semibold text-xs transition-colors cursor-pointer"
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                                </svg>
+                                <span>Receipts</span>
+                              </button>
+                            )}
                             {!isFullyPaid && (
                               <button
                                 onClick={() => {
@@ -1846,6 +1931,129 @@ export default function FeesManagementPage() {
                 )}
                 <span>Confirm Waive</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* MODAL 6: PAYMENT RECEIPTS HISTORY (FIX-010)                        */}
+      {/* =================================================================== */}
+      {viewingReceiptsFee && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-150">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div>
+                <h3 className="font-bold text-slate-900 text-base">Payment Receipts</h3>
+                <p className="text-xs text-slate-500">
+                  {viewingReceiptsFee.student.firstName} {viewingReceiptsFee.student.lastName} — {viewingReceiptsFee.feeStructure.name}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingReceiptsFee(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {/* Summary Cards */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Total Due</span>
+                  <span className="text-sm font-extrabold text-slate-900 font-mono">
+                    {formatNaira(viewingReceiptsFee.amountDue)}
+                  </span>
+                </div>
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                  <span className="text-[10px] uppercase font-bold text-emerald-700 block">Total Paid</span>
+                  <span className="text-sm font-extrabold text-emerald-700 font-mono">
+                    {formatNaira(viewingReceiptsFee.amountPaid)}
+                  </span>
+                </div>
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                  <span className="text-[10px] uppercase font-bold text-blue-700 block">Balance</span>
+                  <span className="text-sm font-extrabold text-blue-700 font-mono">
+                    {formatNaira(
+                      Math.max(
+                        0,
+                        parseFloat(String(viewingReceiptsFee.amountDue)) - parseFloat(String(viewingReceiptsFee.amountPaid))
+                      )
+                    )}
+                  </span>
+                </div>
+              </div>
+
+              {/* Payments List */}
+              {loadingFeePayments ? (
+                <div className="py-12 text-center text-slate-400 text-sm">
+                  <span className="inline-block w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mb-2" />
+                  <p>Loading receipts...</p>
+                </div>
+              ) : feePayments.length === 0 ? (
+                <div className="py-10 text-center text-slate-400 text-sm bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                  No payment records found for this fee.
+                </div>
+              ) : (
+                <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-80 overflow-y-auto">
+                  {feePayments.map((payment) => (
+                    <div
+                      key={payment.id}
+                      className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50 transition-colors"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-slate-900 text-sm">
+                            {payment.receiptNumber}
+                          </span>
+                          <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200">
+                            {payment.method.replace("_", " ")}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 font-medium">
+                          Paid on {new Date(payment.paidAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
+                          {payment.reference ? ` • Ref: ${payment.reference}` : ""}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center justify-between sm:justify-end gap-4">
+                        <span className="text-sm font-extrabold text-emerald-700 font-mono">
+                          {formatNaira(payment.amount)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadReceipt(viewingReceiptsFee.id, payment.id, payment.receiptNumber)}
+                          disabled={downloadingPaymentId === payment.id}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          {downloadingPaymentId === payment.id ? (
+                            <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          ) : (
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                            </svg>
+                          )}
+                          <span>Download Receipt (PDF)</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="pt-3 flex justify-end border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setViewingReceiptsFee(null)}
+                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 font-semibold text-xs transition-colors cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         </div>

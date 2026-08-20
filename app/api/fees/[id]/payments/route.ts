@@ -130,45 +130,85 @@ export const POST = withAuth(
         newStatus = "PENDING";
       }
 
-      // --- Create payment and update fee in a transaction ---
-      const [payment, updatedFee] = await prisma.$transaction([
-        prisma.payment.create({
-          data: {
-            feeId,
-            amount: paymentAmount,
-            method,
-            reference,
-            recordedBy: req.user.userId,
-          },
-        }),
-        prisma.fee.update({
-          where: { id: feeId },
-          data: {
-            amountPaid: newAmountPaid,
-            status: newStatus,
-            paidAt,
-          },
-          include: {
-            student: {
-              select: {
-                id: true,
-                studentId: true,
-                firstName: true,
-                lastName: true,
+      // --- Fetch school prefix ---
+      const school = await prisma.school.findUnique({
+        where: { id: schoolId },
+        select: { studentIdPrefix: true },
+      });
+      const prefix = (school?.studentIdPrefix || "SCH").toUpperCase();
+      const year = new Date().getFullYear().toString();
+
+      // --- Create payment and update fee in a transaction with concurrency retry ---
+      let payment: any;
+      let updatedFee: any;
+      const MAX_RETRIES = 5;
+
+      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        try {
+          const result = await prisma.$transaction(async (tx) => {
+            const currentCount = await tx.payment.count({
+              where: { schoolId },
+            });
+            const seq = currentCount + 1;
+            const receiptNumber = `RCP/${prefix}/${year}/${String(seq).padStart(5, "0")}`;
+
+            const newPayment = await tx.payment.create({
+              data: {
+                schoolId,
+                feeId,
+                receiptNumber,
+                amount: paymentAmount,
+                method,
+                reference,
+                recordedBy: req.user.userId,
               },
-            },
-            feeStructure: {
-              select: {
-                id: true,
-                name: true,
-                type: true,
-                academicYear: true,
-                term: true,
+            });
+
+            const feeUpdate = await tx.fee.update({
+              where: { id: feeId },
+              data: {
+                amountPaid: newAmountPaid,
+                status: newStatus,
+                paidAt,
               },
-            },
-          },
-        }),
-      ]);
+              include: {
+                student: {
+                  select: {
+                    id: true,
+                    studentId: true,
+                    firstName: true,
+                    lastName: true,
+                  },
+                },
+                feeStructure: {
+                  select: {
+                    id: true,
+                    name: true,
+                    type: true,
+                    academicYear: true,
+                    term: true,
+                  },
+                },
+              },
+            });
+
+            return { newPayment, feeUpdate };
+          });
+
+          payment = result.newPayment;
+          updatedFee = result.feeUpdate;
+          break;
+        } catch (err: any) {
+          if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+            console.log(
+              `[P2002 Collision Handled] Caught P2002 on attempt ${attempt + 1}. Retrying with fresh count...`
+            );
+            if (attempt === MAX_RETRIES - 1) throw err;
+            continue;
+          }
+          throw err;
+        }
+      }
 
       return NextResponse.json(
         {
@@ -179,7 +219,8 @@ export const POST = withAuth(
         },
         { status: 201 }
       );
-    } catch {
+    } catch (err: any) {
+      console.error("POST /api/fees/[id]/payments error:", err);
       return NextResponse.json(
         { error: "Internal server error" },
         { status: 500 }

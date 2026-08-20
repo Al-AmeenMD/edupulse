@@ -30,6 +30,7 @@ model School {
   questions     Question[]
   assessments   Assessment[]
   submissions   Submission[]
+  payments      Payment[]
 
   @@map("schools")
 }
@@ -274,16 +275,20 @@ model Fee {
 }
 
 model Payment {
-  id         String   @id @default(cuid())
-  feeId      String
-  amount     Decimal  @db.Decimal(10, 2)
-  method     String
-  reference  String?
-  recordedBy String
-  paidAt     DateTime @default(now())
+  id            String   @id @default(cuid())
+  schoolId      String
+  feeId         String
+  receiptNumber String
+  amount        Decimal  @db.Decimal(10, 2)
+  method        String
+  reference     String?
+  recordedBy    String
+  paidAt        DateTime @default(now())
 
-  fee        Fee      @relation(fields: [feeId], references: [id])
+  school        School   @relation(fields: [schoolId], references: [id])
+  fee           Fee      @relation(fields: [feeId], references: [id])
 
+  @@unique([schoolId, receiptNumber])
   @@map("payments")
 }
 
