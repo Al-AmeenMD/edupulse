@@ -88,7 +88,7 @@ export const GET = withAuth(
       );
     }
   },
-  [Role.SCHOOL_ADMIN]
+  [Role.SCHOOL_ADMIN, Role.FINANCE_ADMIN]
 );
 
 // ---------------------------------------------------------------------------
@@ -242,5 +242,5 @@ export const PATCH = withAuth(
       );
     }
   },
-  [Role.SCHOOL_ADMIN]
+  [Role.SCHOOL_ADMIN, Role.FINANCE_ADMIN]
 );

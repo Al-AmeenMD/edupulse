@@ -4,18 +4,18 @@ info:
   seq: 6
 
 http:
-  method: POST
-  url: http://localhost:3000/api/auth/login
+  method: GET
+  url: http://localhost:3000/api/schools/cmnw0wivf0000bqujydenkbdh/finance-admins
   body:
     type: json
     data: |-
       {
-        "email": "zainab@zenithacademy.com",
-        "password": "Finance@123"
+        "email": "admin@developmenthub.ng",
+        "password": "Admin@12345"
       }
   auth:
     type: bearer
-    token: "{{admin_token}}"
+    token: "{{devhub_admin_token}}"
 
 settings:
   encodeUrl: true

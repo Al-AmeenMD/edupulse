@@ -55,7 +55,7 @@ export const GET = withAuth(
       );
     }
   },
-  [Role.SCHOOL_ADMIN, Role.TEACHER]
+  [Role.SCHOOL_ADMIN, Role.FINANCE_ADMIN, Role.TEACHER]
 );
 
 export const PATCH = withAuth(
