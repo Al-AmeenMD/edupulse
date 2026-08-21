@@ -11,7 +11,7 @@ const ROLE_REDIRECTS: Record<string, string> = {
 
 const ROUTE_ROLE_MAP: Array<{ prefix: string; allowedRoles: string[] }> = [
   { prefix: "/super-admin", allowedRoles: ["SUPER_ADMIN"] },
-  { prefix: "/admin/finance-dashboard", allowedRoles: ["FINANCE_ADMIN"] },
+  { prefix: "/admin/finance-dashboard", allowedRoles: ["FINANCE_ADMIN", "SCHOOL_ADMIN"] },
   { prefix: "/admin", allowedRoles: ["SCHOOL_ADMIN"] },
   { prefix: "/teacher", allowedRoles: ["TEACHER"] },
 ];

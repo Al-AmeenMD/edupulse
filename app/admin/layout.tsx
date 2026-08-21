@@ -36,7 +36,7 @@ export default function AdminLayout({
 
     try {
       const parsedUser = JSON.parse(userJson) as User;
-      if (parsedUser.role !== "SCHOOL_ADMIN") {
+      if (!["SCHOOL_ADMIN", "FINANCE_ADMIN"].includes(parsedUser.role)) {
         router.push("/login");
         return;
       }
