@@ -6,12 +6,14 @@ const ROLE_REDIRECTS: Record<string, string> = {
   SUPER_ADMIN: "/super-admin/dashboard",
   SCHOOL_ADMIN: "/admin/dashboard",
   TEACHER: "/teacher/dashboard",
+  FINANCE_ADMIN: "/admin/finance-dashboard",
 };
 
-const ROUTE_ROLE_MAP: Array<{ prefix: string; requiredRole: string }> = [
-  { prefix: "/super-admin", requiredRole: "SUPER_ADMIN" },
-  { prefix: "/admin", requiredRole: "SCHOOL_ADMIN" },
-  { prefix: "/teacher", requiredRole: "TEACHER" },
+const ROUTE_ROLE_MAP: Array<{ prefix: string; allowedRoles: string[] }> = [
+  { prefix: "/super-admin", allowedRoles: ["SUPER_ADMIN"] },
+  { prefix: "/admin/finance-dashboard", allowedRoles: ["FINANCE_ADMIN"] },
+  { prefix: "/admin", allowedRoles: ["SCHOOL_ADMIN"] },
+  { prefix: "/teacher", allowedRoles: ["TEACHER"] },
 ];
 
 export async function middleware(request: NextRequest) {
@@ -29,7 +31,7 @@ export async function middleware(request: NextRequest) {
 
     try {
       const decoded = await verifyTokenAsync(token);
-      if (decoded.role !== matchedRoute.requiredRole) {
+      if (!matchedRoute.allowedRoles.includes(decoded.role)) {
         return NextResponse.redirect(new URL("/login", request.url));
       }
     } catch {

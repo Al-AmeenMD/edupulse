@@ -7,6 +7,7 @@ const ROLE_REDIRECTS: Record<string, string> = {
   SUPER_ADMIN: "/super-admin/dashboard",
   SCHOOL_ADMIN: "/admin/dashboard",
   TEACHER: "/teacher/dashboard",
+  FINANCE_ADMIN: "/admin/finance-dashboard",
 };
 
 export default function LoginPage() {
