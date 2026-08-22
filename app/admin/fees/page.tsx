@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useMemo, useRef, FormEvent } from "react";
+import { useEffect, useState, useMemo, useRef, FormEvent, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 
 // Types
 type FeeType = "TUITION" | "TRANSPORT" | "UNIFORM" | "EXAM" | "MISCELLANEOUS";
@@ -87,6 +88,21 @@ function formatAmount(amount: number | string): string {
 
 function formatNaira(amount: number | string): string {
   return `₦${formatAmount(amount)}`;
+}
+
+function FeesTabSync({ onTabChange }: { onTabChange: (tab: "structures" | "student_fees") => void }) {
+  const searchParams = useSearchParams();
+  const tabParam = searchParams ? searchParams.get("tab") : null;
+
+  useEffect(() => {
+    if (tabParam === "student_fees" || tabParam === "students") {
+      onTabChange("student_fees");
+    } else if (tabParam === "structures") {
+      onTabChange("structures");
+    }
+  }, [tabParam, onTabChange]);
+
+  return null;
 }
 
 export default function FeesManagementPage() {
@@ -828,6 +844,9 @@ export default function FeesManagementPage() {
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
+      <Suspense fallback={null}>
+        <FeesTabSync onTabChange={setActiveTab} />
+      </Suspense>
       {/* Header & Title */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
