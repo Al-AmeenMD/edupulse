@@ -22,8 +22,35 @@ export const GET = withAuth(
 
       const { id } = (await context.params) as Awaited<RouteContext["params"]>;
 
-      const student = await prisma.student.findUnique({
-        where: { id },
+      const where: any = {
+        id,
+        schoolId,
+      };
+
+      if (req.user.role === Role.TEACHER) {
+        const teacherRecord = await prisma.teacher.findUnique({
+          where: { userId: req.user.userId },
+          select: { id: true },
+        });
+
+        if (!teacherRecord) {
+          return NextResponse.json(
+            { error: "Teacher profile not found" },
+            { status: 404 }
+          );
+        }
+
+        where.classEnrollments = {
+          some: {
+            class: {
+              teacherId: teacherRecord.id,
+            },
+          },
+        };
+      }
+
+      const student = await prisma.student.findFirst({
+        where,
         include: {
           classEnrollments: {
             include: {
@@ -40,7 +67,7 @@ export const GET = withAuth(
         },
       });
 
-      if (!student || student.schoolId !== schoolId) {
+      if (!student) {
         return NextResponse.json(
           { error: "Student not found" },
           { status: 404 }
