@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 
 interface TeacherUser {
   id: string;
@@ -341,6 +342,27 @@ export default function TeachersPage() {
         </button>
       </div>
 
+      {/* Sub-Navigation Tabs */}
+      <div className="border-b border-slate-200">
+        <nav className="-mb-px flex space-x-8">
+          <Link
+            href="/admin/teachers"
+            className="border-blue-600 text-blue-600 whitespace-nowrap py-3 px-1 border-b-2 font-bold text-sm flex items-center gap-2"
+          >
+            <span>Teachers</span>
+            <span className="bg-blue-100 text-blue-700 py-0.5 px-2.5 rounded-full text-xs font-semibold">
+              {teachers.length}
+            </span>
+          </Link>
+          <Link
+            href="/admin/finance-admins"
+            className="border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300 whitespace-nowrap py-3 px-1 border-b-2 font-semibold text-sm flex items-center gap-2"
+          >
+            <span>Finance Admins</span>
+          </Link>
+        </nav>
+      </div>
+
       {/* Success Alert */}
       {success && (
         <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm font-medium flex items-center justify-between gap-3">
@@ -539,7 +561,7 @@ export default function TeachersPage() {
               </div>
             )}
 
-            <form onSubmit={handleAddTeacherSubmit} className="p-6 space-y-4 overflow-y-auto flex-1">
+            <form onSubmit={handleAddTeacherSubmit} autoComplete="off" className="p-6 space-y-4 overflow-y-auto flex-1">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="block text-xs font-semibold text-slate-700">
@@ -554,7 +576,6 @@ export default function TeachersPage() {
                     className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 font-medium"
                   />
                 </div>
-
                 <div className="space-y-1">
                   <label className="block text-xs font-semibold text-slate-700">
                     Last Name <span className="text-rose-500">*</span>
@@ -577,6 +598,9 @@ export default function TeachersPage() {
                   </label>
                   <input
                     type="email"
+                    id="new_teacher_email"
+                    name="new_teacher_email"
+                    autoComplete="off"
                     value={addEmail}
                     onChange={(e) => setAddEmail(e.target.value)}
                     required
@@ -660,6 +684,9 @@ export default function TeachersPage() {
                 <div className="relative">
                   <input
                     type={showAddPassword ? "text" : "password"}
+                    id="new_teacher_password"
+                    name="new_teacher_password"
+                    autoComplete="new-password"
                     value={addPassword}
                     onChange={(e) => setAddPassword(e.target.value)}
                     required
