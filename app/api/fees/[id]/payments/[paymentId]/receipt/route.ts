@@ -1,4 +1,4 @@
-import { Role } from "@prisma/client";
+import { Prisma, Role } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import { withAuth } from "@/lib/middleware/withAuth";
@@ -63,6 +63,14 @@ export const GET = withAuth(
                 },
               },
               feeStructure: true,
+              payments: {
+                orderBy: { paidAt: "asc" },
+                select: {
+                  id: true,
+                  amount: true,
+                  paidAt: true,
+                },
+              },
             },
           },
         },
@@ -108,13 +116,24 @@ export const GET = withAuth(
       const paymentMethod = payment.method.toUpperCase().replace("_", " ");
       const reference = payment.reference || "N/A";
 
-      const amountDueNum = Number(payment.fee.amountDue);
-      const amountPaidThisNum = Number(payment.amount);
-      const totalAmountPaidNum = Number(payment.fee.amountPaid);
-      const remainingBalanceNum = Math.max(
-        0,
-        amountDueNum - totalAmountPaidNum
-      );
+      // Use Prisma.Decimal arithmetic for point-in-time accuracy
+      const amountDue = new Prisma.Decimal(payment.fee.amountDue);
+      const amountPaidThis = new Prisma.Decimal(payment.amount);
+
+      // Compute point-in-time cumulative total paid up to and including THIS payment
+      let cumulativePaid = new Prisma.Decimal(0);
+      for (const p of payment.fee.payments) {
+        const pDate = new Date(p.paidAt).getTime();
+        const targetDate = new Date(payment.paidAt).getTime();
+        if (pDate < targetDate || (pDate === targetDate && p.id <= payment.id)) {
+          cumulativePaid = cumulativePaid.add(new Prisma.Decimal(p.amount));
+        }
+      }
+
+      const remainingBalance = amountDue.greaterThan(cumulativePaid)
+        ? amountDue.sub(cumulativePaid)
+        : new Prisma.Decimal(0);
+      const hasRemainingBalance = remainingBalance.greaterThan(0);
 
       // --- Palette ---
       const primaryColor = rgb(0.08, 0.18, 0.36); // #142e5c Deep Navy
@@ -349,7 +368,7 @@ export const GET = withAuth(
         font: fontRegular,
         color: darkSlate,
       });
-      page.drawText(formatNairaPlain(amountPaidThisNum), {
+      page.drawText(formatNairaPlain(amountPaidThis.toFixed(2)), {
         x: 430,
         y: currentY,
         size: 9,
@@ -374,7 +393,7 @@ export const GET = withAuth(
         font: fontRegular,
         color: mutedSlate,
       });
-      page.drawText(formatNairaPlain(amountDueNum), {
+      page.drawText(formatNairaPlain(amountDue.toFixed(2)), {
         x: 440,
         y: currentY,
         size: 9,
@@ -390,7 +409,7 @@ export const GET = withAuth(
         font: fontBold,
         color: emeraldText,
       });
-      page.drawText(formatNairaPlain(amountPaidThisNum), {
+      page.drawText(formatNairaPlain(amountPaidThis.toFixed(2)), {
         x: 440,
         y: currentY,
         size: 9,
@@ -406,7 +425,7 @@ export const GET = withAuth(
         font: fontRegular,
         color: darkSlate,
       });
-      page.drawText(formatNairaPlain(totalAmountPaidNum), {
+      page.drawText(formatNairaPlain(cumulativePaid.toFixed(2)), {
         x: 440,
         y: currentY,
         size: 9,
@@ -420,14 +439,14 @@ export const GET = withAuth(
         y: currentY,
         size: 9,
         font: fontBold,
-        color: remainingBalanceNum > 0 ? rgb(0.7, 0.15, 0.15) : darkSlate,
+        color: hasRemainingBalance ? rgb(0.7, 0.15, 0.15) : darkSlate,
       });
-      page.drawText(formatNairaPlain(remainingBalanceNum), {
+      page.drawText(formatNairaPlain(remainingBalance.toFixed(2)), {
         x: 440,
         y: currentY,
         size: 9,
         font: fontBold,
-        color: remainingBalanceNum > 0 ? rgb(0.7, 0.15, 0.15) : darkSlate,
+        color: hasRemainingBalance ? rgb(0.7, 0.15, 0.15) : darkSlate,
       });
 
       // 5. Footer & Verification Seal
