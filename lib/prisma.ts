@@ -33,4 +33,6 @@ if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;
   globalForPrisma.prismaPool = pool;
 }
+// HMR cache refresh for mustChangePassword schema update
+
 

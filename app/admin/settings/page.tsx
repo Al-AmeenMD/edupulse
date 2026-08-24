@@ -26,6 +26,63 @@ export default function AdminSettingsPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  // Change Password State
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordSuccess, setPasswordSuccess] = useState("");
+
+  async function handleChangePassword(e: React.FormEvent) {
+    e.preventDefault();
+    setPasswordError("");
+    setPasswordSuccess("");
+
+    if (newPassword !== confirmPassword) {
+      setPasswordError("New passwords do not match.");
+      return;
+    }
+
+    if (newPassword.length < 8) {
+      setPasswordError("New password must be at least 8 characters.");
+      return;
+    }
+
+    try {
+      setPasswordSaving(true);
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) return;
+
+      const res = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          currentPassword,
+          newPassword,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setPasswordError(data.error || "Failed to change password.");
+        return;
+      }
+
+      setPasswordSuccess("Password changed successfully.");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (err: any) {
+      setPasswordError(err.message || "An error occurred.");
+    } finally {
+      setPasswordSaving(false);
+    }
+  }
+
   // Fetch current settings on mount
   useEffect(() => {
     async function fetchSettings() {
@@ -326,6 +383,91 @@ export default function AdminSettingsPage() {
                 </>
               ) : (
                 <span>Save ID Configuration</span>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* Security & Password Card */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+        <div className="p-6 border-b border-slate-100">
+          <h2 className="text-lg font-bold text-slate-900">Security & Account Password</h2>
+          <p className="text-xs text-slate-500 mt-1">
+            Update your account password to maintain security.
+          </p>
+        </div>
+
+        <form onSubmit={handleChangePassword} autoComplete="off" className="p-6 space-y-4 max-w-xl">
+          {passwordSuccess && (
+            <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-medium">
+              {passwordSuccess}
+            </div>
+          )}
+
+          {passwordError && (
+            <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-medium">
+              {passwordError}
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Current Password <span className="text-rose-500">*</span>
+            </label>
+            <input
+              type="password"
+              required
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              placeholder="••••••••"
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none font-mono"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              New Password <span className="text-rose-500">* (Min 8 chars)</span>
+            </label>
+            <input
+              type="password"
+              required
+              minLength={8}
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="••••••••"
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none font-mono"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Confirm New Password <span className="text-rose-500">*</span>
+            </label>
+            <input
+              type="password"
+              required
+              minLength={8}
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="••••••••"
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none font-mono"
+            />
+          </div>
+
+          <div className="pt-2 flex justify-end">
+            <button
+              type="submit"
+              disabled={passwordSaving}
+              className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm transition-colors shadow-xs disabled:opacity-50 cursor-pointer flex items-center gap-2"
+            >
+              {passwordSaving ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span>Updating...</span>
+                </>
+              ) : (
+                <span>Update Password</span>
               )}
             </button>
           </div>

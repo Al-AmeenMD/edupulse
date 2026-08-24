@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
         role: true,
         schoolId: true,
         isActive: true,
+        mustChangePassword: true,
         school: {
           select: {
             name: true,
@@ -83,6 +84,7 @@ export async function POST(req: NextRequest) {
           role: user.role,
           schoolId: user.schoolId,
           schoolName: user.school?.name || null,
+          mustChangePassword: user.mustChangePassword,
         },
       },
       { status: 200 }
