@@ -59,6 +59,51 @@ interface DashboardSummaryData {
   overdueFees: OverdueFeeItem[];
 }
 
+interface FeeTypeBreakdownItem {
+  type: string;
+  label: string;
+  totalAssigned: string;
+  totalCollected: string;
+  totalOutstanding: string;
+  collectionRate: string;
+  feeCount: number;
+  paymentCount: number;
+}
+
+interface AcademicYearBreakdownItem {
+  academicYear: string;
+  totalAssigned: string;
+  totalCollected: string;
+  totalOutstanding: string;
+  collectionRate: string;
+  feeCount: number;
+  paymentCount: number;
+}
+
+interface TermBreakdownItem {
+  term: string;
+  totalAssigned: string;
+  totalCollected: string;
+  totalOutstanding: string;
+  collectionRate: string;
+  feeCount: number;
+  paymentCount: number;
+}
+
+interface MonthBreakdownItem {
+  month: string;
+  monthLabel: string;
+  totalCollected: string;
+  paymentCount: number;
+}
+
+interface BreakdownData {
+  byFeeType: FeeTypeBreakdownItem[];
+  byAcademicYear: AcademicYearBreakdownItem[];
+  byTerm: TermBreakdownItem[];
+  byMonth: MonthBreakdownItem[];
+}
+
 // Currency formatters for Nigerian Naira (₦)
 function formatAmount(amount: number | string): string {
   const num = typeof amount === "number" ? amount : parseFloat(amount) || 0;
@@ -74,26 +119,40 @@ function formatNaira(amount: number | string): string {
 
 export default function FinanceDashboardPage() {
   const [data, setData] = useState<DashboardSummaryData | null>(null);
+  const [breakdownData, setBreakdownData] = useState<BreakdownData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [activeBreakdownTab, setActiveBreakdownTab] = useState<
+    "feeType" | "academicYear" | "term" | "month"
+  >("feeType");
 
-  async function fetchSummaryData() {
+  async function fetchDashboardData() {
     try {
       setLoading(true);
       setError("");
       const token = localStorage.getItem("edupulse_token");
       if (!token) return;
 
-      const res = await fetch("/api/fees/dashboard-summary", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const [summaryRes, breakdownsRes] = await Promise.all([
+        fetch("/api/fees/dashboard-summary", {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        fetch("/api/fees/reports/breakdowns", {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      ]);
 
-      const resJson = await res.json();
-      if (!res.ok) {
-        throw new Error(resJson.error || "Failed to load finance summary");
+      const summaryJson = await summaryRes.json();
+      if (!summaryRes.ok) {
+        throw new Error(summaryJson.error || "Failed to load finance summary");
       }
+      setData(summaryJson.data);
 
-      setData(resJson.data);
+      const breakdownsJson = await breakdownsRes.json();
+      if (!breakdownsRes.ok) {
+        throw new Error(breakdownsJson.error || "Failed to load reporting breakdowns");
+      }
+      setBreakdownData(breakdownsJson.data);
     } catch (err: any) {
       setError(err.message || "An error occurred while loading dashboard metrics");
     } finally {
@@ -102,7 +161,7 @@ export default function FinanceDashboardPage() {
   }
 
   useEffect(() => {
-    fetchSummaryData();
+    fetchDashboardData();
   }, []);
 
   const stats = data?.stats;
@@ -122,9 +181,9 @@ export default function FinanceDashboardPage() {
           </p>
         </div>
         <button
-          onClick={fetchSummaryData}
+          onClick={fetchDashboardData}
           disabled={loading}
-          className="self-start sm:self-auto inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200/80 rounded-xl hover:bg-slate-50 transition-colors shadow-xs"
+          className="self-start sm:self-auto inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200/80 rounded-xl hover:bg-slate-50 transition-colors shadow-xs cursor-pointer disabled:opacity-50"
         >
           <svg
             className={`w-4 h-4 text-slate-500 ${loading ? "animate-spin" : ""}`}
@@ -164,14 +223,14 @@ export default function FinanceDashboardPage() {
           </div>
           <button
             onClick={() => setError("")}
-            className="text-red-500 hover:text-red-700 font-bold text-xs"
+            className="text-red-500 hover:text-red-700 font-bold text-xs cursor-pointer"
           >
             Dismiss
           </button>
         </div>
       )}
 
-      {/* 5 Stat Cards Grid */}
+      {/* 5 Stat Cards Grid (Preserved from FINANCE-006) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
         {/* Total Fees Assigned */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs hover:shadow-md transition-shadow">
@@ -289,7 +348,341 @@ export default function FinanceDashboardPage() {
         </div>
       </div>
 
-      {/* Two Column Section for Recent Payments and Overdue Fees */}
+      {/* =================================================================== */}
+      {/* REPORTING BREAKDOWNS SECTION (NEW: Phase 1, Group 2)               */}
+      {/* =================================================================== */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+        {/* Card Header & Segmented Tab Navigation */}
+        <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h2 className="text-base font-bold text-slate-900">
+              Revenue & Collections Breakdown
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Financial performance segmented by fee category, academic period, and cash flow timing.
+            </p>
+          </div>
+
+          {/* Segmented Tab Controls */}
+          <div className="inline-flex p-1 bg-slate-100/80 rounded-xl border border-slate-200/60 self-start md:self-auto">
+            <button
+              onClick={() => setActiveBreakdownTab("feeType")}
+              className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                activeBreakdownTab === "feeType"
+                  ? "bg-white text-slate-900 shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              By Fee Type
+            </button>
+            <button
+              onClick={() => setActiveBreakdownTab("academicYear")}
+              className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                activeBreakdownTab === "academicYear"
+                  ? "bg-white text-slate-900 shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              By Session
+            </button>
+            <button
+              onClick={() => setActiveBreakdownTab("term")}
+              className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                activeBreakdownTab === "term"
+                  ? "bg-white text-slate-900 shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              By Term
+            </button>
+            <button
+              onClick={() => setActiveBreakdownTab("month")}
+              className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                activeBreakdownTab === "month"
+                  ? "bg-white text-slate-900 shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Monthly Trends
+            </button>
+          </div>
+        </div>
+
+        {/* Tab 1: By Fee Type */}
+        {activeBreakdownTab === "feeType" && (
+          <div>
+            {loading ? (
+              <div className="p-6 space-y-3">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-12 bg-slate-100 animate-pulse rounded-lg" />
+                ))}
+              </div>
+            ) : !breakdownData?.byFeeType || breakdownData.byFeeType.length === 0 ? (
+              <div className="p-10 text-center text-slate-500 text-xs">
+                No fee type data available.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50/80 border-b border-slate-100 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      <th className="px-6 py-3.5">Fee Type</th>
+                      <th className="px-6 py-3.5">Assigned (₦)</th>
+                      <th className="px-6 py-3.5">Collected (₦)</th>
+                      <th className="px-6 py-3.5">Collection Rate</th>
+                      <th className="px-6 py-3.5">Outstanding (₦)</th>
+                      <th className="px-6 py-3.5 text-right">Assigned / Paid</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-sm">
+                    {breakdownData.byFeeType.map((item) => {
+                      const rateNum = parseFloat(item.collectionRate) || 0;
+                      return (
+                        <tr key={item.type} className="hover:bg-slate-50/60 transition-colors">
+                          <td className="px-6 py-3.5 font-semibold text-slate-900 flex items-center gap-2">
+                            <span className="inline-block w-2.5 h-2.5 rounded-full bg-indigo-500 shrink-0" />
+                            <span>{item.label}</span>
+                          </td>
+                          <td className="px-6 py-3.5 text-slate-700 text-xs font-mono">
+                            {formatNaira(item.totalAssigned)}
+                          </td>
+                          <td className="px-6 py-3.5 font-semibold text-emerald-600 text-xs font-mono">
+                            {formatNaira(item.totalCollected)}
+                          </td>
+                          <td className="px-6 py-3.5">
+                            <div className="flex items-center gap-2">
+                              <div className="w-16 bg-slate-100 rounded-full h-2 overflow-hidden shrink-0">
+                                <div
+                                  className={`h-2 rounded-full ${
+                                    rateNum >= 75
+                                      ? "bg-emerald-500"
+                                      : rateNum >= 40
+                                      ? "bg-amber-500"
+                                      : "bg-slate-400"
+                                  }`}
+                                  style={{ width: `${Math.min(100, rateNum)}%` }}
+                                />
+                              </div>
+                              <span className="text-xs font-semibold text-slate-700 font-mono">
+                                {item.collectionRate}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-3.5 font-semibold text-amber-600 text-xs font-mono">
+                            {formatNaira(item.totalOutstanding)}
+                          </td>
+                          <td className="px-6 py-3.5 text-right text-xs text-slate-500 font-medium">
+                            {item.feeCount} fees &middot; {item.paymentCount} payments
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tab 2: By Academic Session / Year */}
+        {activeBreakdownTab === "academicYear" && (
+          <div>
+            {loading ? (
+              <div className="p-6 space-y-3">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-12 bg-slate-100 animate-pulse rounded-lg" />
+                ))}
+              </div>
+            ) : !breakdownData?.byAcademicYear || breakdownData.byAcademicYear.length === 0 ? (
+              <div className="p-10 text-center text-slate-500 text-xs">
+                No session data available.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50/80 border-b border-slate-100 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      <th className="px-6 py-3.5">Academic Session / Year</th>
+                      <th className="px-6 py-3.5">Assigned (₦)</th>
+                      <th className="px-6 py-3.5">Collected (₦)</th>
+                      <th className="px-6 py-3.5">Collection Rate</th>
+                      <th className="px-6 py-3.5">Outstanding (₦)</th>
+                      <th className="px-6 py-3.5 text-right">Transactions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-sm">
+                    {breakdownData.byAcademicYear.map((item) => {
+                      const rateNum = parseFloat(item.collectionRate) || 0;
+                      return (
+                        <tr key={item.academicYear} className="hover:bg-slate-50/60 transition-colors">
+                          <td className="px-6 py-3.5 font-bold text-slate-900">
+                            {item.academicYear}
+                          </td>
+                          <td className="px-6 py-3.5 text-slate-700 text-xs font-mono">
+                            {formatNaira(item.totalAssigned)}
+                          </td>
+                          <td className="px-6 py-3.5 font-semibold text-emerald-600 text-xs font-mono">
+                            {formatNaira(item.totalCollected)}
+                          </td>
+                          <td className="px-6 py-3.5">
+                            <div className="flex items-center gap-2">
+                              <div className="w-16 bg-slate-100 rounded-full h-2 overflow-hidden shrink-0">
+                                <div
+                                  className={`h-2 rounded-full ${
+                                    rateNum >= 75
+                                      ? "bg-emerald-500"
+                                      : rateNum >= 40
+                                      ? "bg-amber-500"
+                                      : "bg-slate-400"
+                                  }`}
+                                  style={{ width: `${Math.min(100, rateNum)}%` }}
+                                />
+                              </div>
+                              <span className="text-xs font-semibold text-slate-700 font-mono">
+                                {item.collectionRate}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-3.5 font-semibold text-amber-600 text-xs font-mono">
+                            {formatNaira(item.totalOutstanding)}
+                          </td>
+                          <td className="px-6 py-3.5 text-right text-xs text-slate-500 font-medium">
+                            {item.feeCount} fees &middot; {item.paymentCount} payments
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tab 3: By Term */}
+        {activeBreakdownTab === "term" && (
+          <div>
+            {loading ? (
+              <div className="p-6 space-y-3">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-12 bg-slate-100 animate-pulse rounded-lg" />
+                ))}
+              </div>
+            ) : !breakdownData?.byTerm || breakdownData.byTerm.length === 0 ? (
+              <div className="p-10 text-center text-slate-500 text-xs">
+                No term data available.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50/80 border-b border-slate-100 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      <th className="px-6 py-3.5">Term</th>
+                      <th className="px-6 py-3.5">Assigned (₦)</th>
+                      <th className="px-6 py-3.5">Collected (₦)</th>
+                      <th className="px-6 py-3.5">Collection Rate</th>
+                      <th className="px-6 py-3.5">Outstanding (₦)</th>
+                      <th className="px-6 py-3.5 text-right">Transactions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-sm">
+                    {breakdownData.byTerm.map((item) => {
+                      const rateNum = parseFloat(item.collectionRate) || 0;
+                      return (
+                        <tr key={item.term} className="hover:bg-slate-50/60 transition-colors">
+                          <td className="px-6 py-3.5 font-bold text-slate-900">
+                            {item.term}
+                          </td>
+                          <td className="px-6 py-3.5 text-slate-700 text-xs font-mono">
+                            {formatNaira(item.totalAssigned)}
+                          </td>
+                          <td className="px-6 py-3.5 font-semibold text-emerald-600 text-xs font-mono">
+                            {formatNaira(item.totalCollected)}
+                          </td>
+                          <td className="px-6 py-3.5">
+                            <div className="flex items-center gap-2">
+                              <div className="w-16 bg-slate-100 rounded-full h-2 overflow-hidden shrink-0">
+                                <div
+                                  className={`h-2 rounded-full ${
+                                    rateNum >= 75
+                                      ? "bg-emerald-500"
+                                      : rateNum >= 40
+                                      ? "bg-amber-500"
+                                      : "bg-slate-400"
+                                  }`}
+                                  style={{ width: `${Math.min(100, rateNum)}%` }}
+                                />
+                              </div>
+                              <span className="text-xs font-semibold text-slate-700 font-mono">
+                                {item.collectionRate}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-3.5 font-semibold text-amber-600 text-xs font-mono">
+                            {formatNaira(item.totalOutstanding)}
+                          </td>
+                          <td className="px-6 py-3.5 text-right text-xs text-slate-500 font-medium">
+                            {item.feeCount} fees &middot; {item.paymentCount} payments
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tab 4: Monthly Trends */}
+        {activeBreakdownTab === "month" && (
+          <div>
+            {loading ? (
+              <div className="p-6 space-y-3">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-12 bg-slate-100 animate-pulse rounded-lg" />
+                ))}
+              </div>
+            ) : !breakdownData?.byMonth || breakdownData.byMonth.length === 0 ? (
+              <div className="p-10 text-center text-slate-500 text-xs">
+                No monthly payment records available.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50/80 border-b border-slate-100 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      <th className="px-6 py-3.5">Calendar Month</th>
+                      <th className="px-6 py-3.5">Total Cash Collected (₦)</th>
+                      <th className="px-6 py-3.5 text-right">Payment Transactions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-sm">
+                    {breakdownData.byMonth.map((item) => (
+                      <tr key={item.month} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="px-6 py-3.5 font-bold text-slate-900 flex items-center gap-2">
+                          <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
+                          </svg>
+                          <span>{item.monthLabel}</span>
+                        </td>
+                        <td className="px-6 py-3.5 font-semibold text-emerald-600 text-sm font-mono">
+                          {formatNaira(item.totalCollected)}
+                        </td>
+                        <td className="px-6 py-3.5 text-right text-xs text-slate-600 font-semibold font-mono">
+                          {item.paymentCount} {item.paymentCount === 1 ? "receipt" : "receipts"} recorded
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Two Column Section for Recent Payments and Overdue Fees (Preserved from FINANCE-006) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Recent Payments Table Card */}
         <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden flex flex-col">
