@@ -13,6 +13,9 @@ const globalForPrisma = globalThis as unknown as {
   prismaPool: Pool | undefined;
 };
 
+// Reset cached instance to ensure newly generated Prisma Client models (e.g. Expense) are recognized
+globalForPrisma.prisma = undefined;
+
 const pool =
   globalForPrisma.prismaPool ??
   new Pool({
@@ -33,6 +36,6 @@ if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;
   globalForPrisma.prismaPool = pool;
 }
-// HMR cache refresh for mustChangePassword schema update
+// HMR cache refresh for Expense schema update
 
 

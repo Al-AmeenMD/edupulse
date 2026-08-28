@@ -31,6 +31,7 @@ model School {
   assessments   Assessment[]
   submissions   Submission[]
   payments      Payment[]
+  expenses      Expense[]
 
   @@map("schools")
 }
@@ -291,6 +292,23 @@ model Payment {
 
   @@unique([schoolId, receiptNumber])
   @@map("payments")
+}
+
+model Expense {
+  id          String    @id @default(cuid())
+  schoolId    String
+  category    String
+  amount      Decimal   @db.Decimal(10, 2)
+  description String
+  expenseDate DateTime  @db.Date
+  recordedBy  String
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  school      School    @relation(fields: [schoolId], references: [id])
+
+  @@map("expenses")
 }
 
 enum AssessmentStatus {

@@ -14,6 +14,7 @@ const ROUTE_ROLE_MAP: Array<{ prefix: string; allowedRoles: string[] }> = [
   { prefix: "/admin/finance-dashboard", allowedRoles: ["FINANCE_ADMIN", "SCHOOL_ADMIN"] },
   { prefix: "/admin/fees", allowedRoles: ["FINANCE_ADMIN", "SCHOOL_ADMIN"] },
   { prefix: "/admin/reports", allowedRoles: ["FINANCE_ADMIN", "SCHOOL_ADMIN"] },
+  { prefix: "/admin/expenses", allowedRoles: ["FINANCE_ADMIN", "SCHOOL_ADMIN"] },
   { prefix: "/admin", allowedRoles: ["SCHOOL_ADMIN"] },
   { prefix: "/teacher", allowedRoles: ["TEACHER"] },
 ];
