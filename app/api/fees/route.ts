@@ -384,8 +384,11 @@ export const GET = withAuth(
       const status = searchParams.get("status");
       const feeStructureId = searchParams.get("feeStructureId");
       const academicYear = searchParams.get("academicYear");
+      const term = searchParams.get("term");
       const classId = searchParams.get("classId");
       const admissionLevel = searchParams.get("admissionLevel");
+      const paidFrom = searchParams.get("paidFrom");
+      const paidTo = searchParams.get("paidTo");
 
       // Build where clause
       const where: Record<string, unknown> = { schoolId };
@@ -402,14 +405,33 @@ export const GET = withAuth(
         where.feeStructureId = feeStructureId;
       }
 
-      if (academicYear) {
-        where.feeStructure = { academicYear };
+      if ((academicYear && academicYear !== "ALL") || (term && term !== "ALL")) {
+        where.feeStructure = {
+          ...(where.feeStructure as object || {}),
+          ...(academicYear && academicYear !== "ALL" ? { academicYear } : {}),
+          ...(term && term !== "ALL" ? { term } : {}),
+        };
       }
 
-      if (admissionLevel) {
+      if (admissionLevel && admissionLevel !== "ALL") {
         where.student = {
           ...(where.student as object || {}),
           admissionLevel,
+        };
+      }
+
+      if (paidFrom || paidTo) {
+        const paidAtFilter: Record<string, Date> = {};
+        if (paidFrom) {
+          paidAtFilter.gte = new Date(`${paidFrom}T00:00:00.000Z`);
+        }
+        if (paidTo) {
+          paidAtFilter.lte = new Date(`${paidTo}T23:59:59.999Z`);
+        }
+        where.payments = {
+          some: {
+            paidAt: paidAtFilter,
+          },
         };
       }
 
@@ -447,6 +469,17 @@ export const GET = withAuth(
               academicYear: true,
               term: true,
             },
+          },
+          payments: {
+            select: {
+              id: true,
+              amount: true,
+              method: true,
+              reference: true,
+              receiptNumber: true,
+              paidAt: true,
+            },
+            orderBy: { paidAt: "desc" },
           },
         },
       });

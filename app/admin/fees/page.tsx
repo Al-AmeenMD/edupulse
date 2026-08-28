@@ -63,6 +63,7 @@ interface StudentFeeItem {
     academicYear: string;
     term?: string | null;
   };
+  payments?: PaymentItem[];
 }
 
 interface PaymentItem {
@@ -108,16 +109,19 @@ function FeesTabSync({ onTabChange }: { onTabChange: (tab: "structures" | "stude
 export default function FeesManagementPage() {
   const [activeTab, setActiveTab] = useState<"structures" | "student_fees">("structures");
 
-  // Tab 1: Fee Structures State
+  // Tab 1: Fee Structures State & Filters
   const [structures, setStructures] = useState<FeeStructureItem[]>([]);
+  const [allStructuresForFilters, setAllStructuresForFilters] = useState<FeeStructureItem[]>([]);
   const [loadingStructures, setLoadingStructures] = useState(true);
+  const [structureSessionFilter, setStructureSessionFilter] = useState<string>("ALL");
+  const [structureTermFilter, setStructureTermFilter] = useState<string>("ALL");
   const [isCreateStructureOpen, setIsCreateStructureOpen] = useState(false);
   const [createStructureForm, setCreateStructureForm] = useState({
     name: "",
     type: "TUITION" as FeeType,
     amount: "",
     academicYear: "2025/2026",
-    term: "Term 1",
+    term: "First Term",
     dueDate: "",
   });
   const [createStructureDisplayAmount, setCreateStructureDisplayAmount] = useState("");
@@ -134,13 +138,50 @@ export default function FeesManagementPage() {
   const [assigningFee, setAssigningFee] = useState(false);
   const [assignSummary, setAssignSummary] = useState<string | null>(null);
 
-  // Tab 2: Student Fees State & Filters (FIX-008 & FIX-016)
+  // Tab 2: Student Fees State & Filters
   const [studentFees, setStudentFees] = useState<StudentFeeItem[]>([]);
   const [loadingStudentFees, setLoadingStudentFees] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [classFilter, setClassFilter] = useState<string>("ALL");
   const [admissionLevelFilter, setAdmissionLevelFilter] = useState<string>("ALL");
+  const [studentFeeSessionFilter, setStudentFeeSessionFilter] = useState<string>("ALL");
+  const [studentFeeTermFilter, setStudentFeeTermFilter] = useState<string>("ALL");
+  const [paidFromFilter, setPaidFromFilter] = useState<string>("");
+  const [paidToFilter, setPaidToFilter] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Derived distinct Academic Years (Sessions) across all fee structures
+  const availableStructureSessions = useMemo(() => {
+    const set = new Set<string>();
+    allStructuresForFilters.forEach((s) => {
+      if (s.academicYear?.trim()) set.add(s.academicYear.trim());
+    });
+    return Array.from(set).sort().reverse();
+  }, [allStructuresForFilters]);
+
+  // Derived distinct Terms for Tab 1 (Fee Structures) based on selected structure session
+  const availableStructureTerms = useMemo(() => {
+    const set = new Set<string>();
+    const filtered = structureSessionFilter === "ALL"
+      ? allStructuresForFilters
+      : allStructuresForFilters.filter((s) => s.academicYear === structureSessionFilter);
+    filtered.forEach((s) => {
+      if (s.term?.trim()) set.add(s.term.trim());
+    });
+    return Array.from(set).sort();
+  }, [allStructuresForFilters, structureSessionFilter]);
+
+  // Derived distinct Terms for Tab 2 (Student Fees) based on selected student fee session
+  const availableStudentFeeTerms = useMemo(() => {
+    const set = new Set<string>();
+    const filtered = studentFeeSessionFilter === "ALL"
+      ? allStructuresForFilters
+      : allStructuresForFilters.filter((s) => s.academicYear === studentFeeSessionFilter);
+    filtered.forEach((s) => {
+      if (s.term?.trim()) set.add(s.term.trim());
+    });
+    return Array.from(set).sort();
+  }, [allStructuresForFilters, studentFeeSessionFilter]);
 
   // Derived distinct Admission Levels for filters & modals (FIX-016 & FIX-009)
   const availableLevels = useMemo(() => {
@@ -175,6 +216,33 @@ export default function FeesManagementPage() {
   // Alerts & Notifications
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+
+  // Table Row Kebab Menu State
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      const target = e.target as HTMLElement;
+      if (!target.closest("[data-row-menu]")) {
+        setOpenMenuId(null);
+      }
+    }
+
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setOpenMenuId(null);
+      }
+    }
+
+    if (openMenuId) {
+      document.addEventListener("mousedown", handleClickOutside);
+      document.addEventListener("keydown", handleKeyDown);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [openMenuId]);
 
   const searchAbortControllerRef = useRef<AbortController | null>(null);
 
@@ -358,6 +426,7 @@ export default function FeesManagementPage() {
       setSuccessMessage(data.data?.message || "Fee structure deleted successfully!");
       setTimeout(() => setSuccessMessage(""), 4000);
       fetchStructures();
+      fetchAllStructuresForFilters();
     } catch (err: any) {
       setError(err.message || "An error occurred while deleting fee structure.");
       setTimeout(() => setError(""), 6000);
@@ -371,14 +440,20 @@ export default function FeesManagementPage() {
   // Data Fetchers
   // ---------------------------------------------------------------------------
 
-  // Fetch Fee Structures
-  async function fetchStructures() {
+  // Fetch Fee Structures (with optional Session & Term filtering)
+  async function fetchStructures(session: string = structureSessionFilter, term: string = structureTermFilter) {
     try {
       setLoadingStructures(true);
       const token = localStorage.getItem("edupulse_token");
       if (!token) return;
 
-      const res = await fetch("/api/fees/structures", {
+      const params = new URLSearchParams();
+      if (session !== "ALL") params.append("academicYear", session);
+      if (term !== "ALL") params.append("term", term);
+
+      const url = `/api/fees/structures${params.toString() ? `?${params.toString()}` : ""}`;
+
+      const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -392,7 +467,25 @@ export default function FeesManagementPage() {
     }
   }
 
-  // Fetch Students & Classes for Assign Modal
+  // Fetch all structures once to populate filter options across both tabs
+  async function fetchAllStructuresForFilters() {
+    try {
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) return;
+
+      const res = await fetch("/api/fees/structures", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setAllStructuresForFilters(data.data || []);
+      }
+    } catch (err) {
+      console.error("Error loading filter structures:", err);
+    }
+  }
+
   // Fetch Students & Classes for Assign Modal & Filters
   async function fetchStudentsAndClasses() {
     try {
@@ -418,12 +511,16 @@ export default function FeesManagementPage() {
     }
   }
 
-  // Fetch Student Fees with Search, Status, Class & Admission Level Filters (FIX-008 & FIX-016)
+  // Fetch Student Fees with Search, Status, Class, Admission Level, Session, Term & Date-Paid Filters
   async function fetchStudentFees(
     query: string = searchQuery,
     status: string = statusFilter,
     classId: string = classFilter,
-    admLevel: string = admissionLevelFilter
+    admLevel: string = admissionLevelFilter,
+    session: string = studentFeeSessionFilter,
+    term: string = studentFeeTermFilter,
+    paidFrom: string = paidFromFilter,
+    paidTo: string = paidToFilter
   ) {
     if (searchAbortControllerRef.current) {
       searchAbortControllerRef.current.abort();
@@ -439,8 +536,12 @@ export default function FeesManagementPage() {
       if (status !== "ALL") params.append("status", status);
       if (classId !== "ALL") params.append("classId", classId);
       if (admLevel !== "ALL") params.append("admissionLevel", admLevel);
+      if (session !== "ALL") params.append("academicYear", session);
+      if (term !== "ALL") params.append("term", term);
+      if (paidFrom.trim()) params.append("paidFrom", paidFrom.trim());
+      if (paidTo.trim()) params.append("paidTo", paidTo.trim());
 
-      const url = `/api/fees?${params.toString()}`;
+      const url = `/api/fees${params.toString() ? `?${params.toString()}` : ""}`;
 
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
@@ -473,20 +574,209 @@ export default function FeesManagementPage() {
 
   useEffect(() => {
     fetchStructures();
+    fetchAllStructuresForFilters();
     fetchStudentsAndClasses();
   }, []);
 
   useEffect(() => {
     if (activeTab === "student_fees") {
-      fetchStudentFees(searchQuery, statusFilter, classFilter, admissionLevelFilter);
+      fetchStudentFees(
+        searchQuery,
+        statusFilter,
+        classFilter,
+        admissionLevelFilter,
+        studentFeeSessionFilter,
+        studentFeeTermFilter,
+        paidFromFilter,
+        paidToFilter
+      );
     }
-  }, [activeTab, statusFilter, classFilter, admissionLevelFilter]);
+  }, [activeTab]);
 
-  function handleSearchChange(e: React.ChangeEvent<HTMLInputElement>) {
+  // Tab 1 Filter Handlers
+  const hasActiveStructureFilters = structureSessionFilter !== "ALL" || structureTermFilter !== "ALL";
+
+  const handleStructureSessionChange = (session: string) => {
+    setStructureSessionFilter(session);
+    let nextTerm = structureTermFilter;
+    if (session === "ALL") {
+      nextTerm = "ALL";
+    } else {
+      const validTerms = Array.from(new Set(
+        allStructuresForFilters
+          .filter((s) => s.academicYear === session)
+          .map((s) => s.term?.trim())
+          .filter(Boolean)
+      ));
+      if (!validTerms.includes(structureTermFilter)) {
+        nextTerm = "ALL";
+      }
+    }
+    setStructureTermFilter(nextTerm);
+    fetchStructures(session, nextTerm);
+  };
+
+  const handleStructureTermChange = (term: string) => {
+    setStructureTermFilter(term);
+    fetchStructures(structureSessionFilter, term);
+  };
+
+  const handleResetStructureFilters = () => {
+    setStructureSessionFilter("ALL");
+    setStructureTermFilter("ALL");
+    fetchStructures("ALL", "ALL");
+  };
+
+  // Tab 2 Filter Handlers
+  const hasActiveStudentFeeFilters =
+    searchQuery.trim() !== "" ||
+    statusFilter !== "ALL" ||
+    classFilter !== "ALL" ||
+    admissionLevelFilter !== "ALL" ||
+    studentFeeSessionFilter !== "ALL" ||
+    studentFeeTermFilter !== "ALL" ||
+    paidFromFilter !== "" ||
+    paidToFilter !== "";
+
+  const handleStudentFeeSessionChange = (session: string) => {
+    setStudentFeeSessionFilter(session);
+    let nextTerm = studentFeeTermFilter;
+    if (session === "ALL") {
+      nextTerm = "ALL";
+    } else {
+      const validTerms = Array.from(new Set(
+        allStructuresForFilters
+          .filter((s) => s.academicYear === session)
+          .map((s) => s.term?.trim())
+          .filter(Boolean)
+      ));
+      if (!validTerms.includes(studentFeeTermFilter)) {
+        nextTerm = "ALL";
+      }
+    }
+    setStudentFeeTermFilter(nextTerm);
+    fetchStudentFees(
+      searchQuery,
+      statusFilter,
+      classFilter,
+      admissionLevelFilter,
+      session,
+      nextTerm,
+      paidFromFilter,
+      paidToFilter
+    );
+  };
+
+  const handleStudentFeeTermChange = (term: string) => {
+    setStudentFeeTermFilter(term);
+    fetchStudentFees(
+      searchQuery,
+      statusFilter,
+      classFilter,
+      admissionLevelFilter,
+      studentFeeSessionFilter,
+      term,
+      paidFromFilter,
+      paidToFilter
+    );
+  };
+
+  const handleClassFilterChange = (classId: string) => {
+    setClassFilter(classId);
+    fetchStudentFees(
+      searchQuery,
+      statusFilter,
+      classId,
+      admissionLevelFilter,
+      studentFeeSessionFilter,
+      studentFeeTermFilter,
+      paidFromFilter,
+      paidToFilter
+    );
+  };
+
+  const handleAdmissionLevelFilterChange = (lvl: string) => {
+    setAdmissionLevelFilter(lvl);
+    fetchStudentFees(
+      searchQuery,
+      statusFilter,
+      classFilter,
+      lvl,
+      studentFeeSessionFilter,
+      studentFeeTermFilter,
+      paidFromFilter,
+      paidToFilter
+    );
+  };
+
+  const handleStatusFilterChange = (st: string) => {
+    setStatusFilter(st);
+    fetchStudentFees(
+      searchQuery,
+      st,
+      classFilter,
+      admissionLevelFilter,
+      studentFeeSessionFilter,
+      studentFeeTermFilter,
+      paidFromFilter,
+      paidToFilter
+    );
+  };
+
+  const handlePaidFromChange = (val: string) => {
+    setPaidFromFilter(val);
+    fetchStudentFees(
+      searchQuery,
+      statusFilter,
+      classFilter,
+      admissionLevelFilter,
+      studentFeeSessionFilter,
+      studentFeeTermFilter,
+      val,
+      paidToFilter
+    );
+  };
+
+  const handlePaidToChange = (val: string) => {
+    setPaidToFilter(val);
+    fetchStudentFees(
+      searchQuery,
+      statusFilter,
+      classFilter,
+      admissionLevelFilter,
+      studentFeeSessionFilter,
+      studentFeeTermFilter,
+      paidFromFilter,
+      val
+    );
+  };
+
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const q = e.target.value;
     setSearchQuery(q);
-    fetchStudentFees(q, statusFilter, classFilter, admissionLevelFilter);
-  }
+    fetchStudentFees(
+      q,
+      statusFilter,
+      classFilter,
+      admissionLevelFilter,
+      studentFeeSessionFilter,
+      studentFeeTermFilter,
+      paidFromFilter,
+      paidToFilter
+    );
+  };
+
+  const handleResetStudentFeeFilters = () => {
+    setSearchQuery("");
+    setStatusFilter("ALL");
+    setClassFilter("ALL");
+    setAdmissionLevelFilter("ALL");
+    setStudentFeeSessionFilter("ALL");
+    setStudentFeeTermFilter("ALL");
+    setPaidFromFilter("");
+    setPaidToFilter("");
+    fetchStudentFees("", "ALL", "ALL", "ALL", "ALL", "ALL", "", "");
+  };
 
   // ---------------------------------------------------------------------------
   // Action Handlers
@@ -543,6 +833,7 @@ export default function FeesManagementPage() {
       setSuccessMessage(`Fee structure "${payload.name}" created successfully!`);
       setTimeout(() => setSuccessMessage(""), 4000);
       fetchStructures();
+      fetchAllStructuresForFilters();
     } catch (err: any) {
       setError(err.message || "An error occurred while creating fee structure.");
       setTimeout(() => setError(""), 4000);
@@ -594,6 +885,7 @@ export default function FeesManagementPage() {
       setSuccessMessage(`Fee structure "${payload.name}" updated successfully!`);
       setTimeout(() => setSuccessMessage(""), 4000);
       fetchStructures();
+      fetchAllStructuresForFilters();
     } catch (err: any) {
       setError(err.message || "An error occurred while updating fee structure.");
       setTimeout(() => setError(""), 4000);
@@ -932,95 +1224,203 @@ export default function FeesManagementPage() {
       {/* TAB 1: FEE STRUCTURES TAB                                           */}
       {/* =================================================================== */}
       {activeTab === "structures" && (
-        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
-          {loadingStructures ? (
-            <div className="p-8 space-y-4">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-12 bg-slate-100 animate-pulse rounded-xl" />
-              ))}
-            </div>
-          ) : structures.length === 0 ? (
-            <div className="p-12 text-center">
-              <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mx-auto mb-3">
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5h16.5m-16.5 3.75h16.5m-16.5 3.75h16.5m-16.5 3.75h16.5" />
-                </svg>
-              </div>
-              <p className="text-sm font-semibold text-slate-800">No fee structures created yet</p>
-              <p className="text-xs text-slate-500 mt-1">
-                Click &quot;Create Structure&quot; above to set up your school fee templates.
-              </p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-50/80 border-b border-slate-100 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                    <th className="px-6 py-3.5">Structure Name</th>
-                    <th className="px-6 py-3.5">Type</th>
-                    <th className="px-6 py-3.5">Amount (₦)</th>
-                    <th className="px-6 py-3.5">Academic Year / Term</th>
-                    <th className="px-6 py-3.5">Due Date</th>
-                    <th className="px-6 py-3.5 text-center">Assigned Count</th>
-                    <th className="px-6 py-3.5 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-sm">
-                  {structures.map((st) => (
-                    <tr key={st.id} className="hover:bg-slate-50/60 transition-colors">
-                      <td className="px-6 py-4 font-bold text-slate-900">
-                        {st.name}
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-                          {st.type}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 font-extrabold text-slate-900 font-mono">
-                        {formatAmount(st.amount)}
-                      </td>
-                      <td className="px-6 py-4 text-xs text-slate-600">
-                        {st.academicYear} {st.term ? `(${st.term})` : ""}
-                      </td>
-                      <td className="px-6 py-4 text-xs text-slate-600 font-mono">
-                        {new Date(st.dueDate).toLocaleDateString()}
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700">
-                          {st._count?.fees ?? 0} Students
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => {
-                              setError("");
-                              setAssigningStructure(st);
-                            }}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold text-xs transition-colors cursor-pointer"
-                          >
-                            <span>Assign Fee</span>
-                          </button>
-                          <button
-                            onClick={() => handleOpenEditStructure(st)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
-                          >
-                            <span>Edit</span>
-                          </button>
-                          <button
-                            onClick={() => handleDeleteStructureClick(st)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 font-semibold text-xs transition-colors border border-rose-200/80 cursor-pointer"
-                          >
-                            <span>Delete</span>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+        <div className="space-y-4">
+          {/* Fee Structures Filter Bar */}
+          <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Session Filter */}
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Session:</label>
+                <select
+                  value={structureSessionFilter}
+                  onChange={(e) => handleStructureSessionChange(e.target.value)}
+                  className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
+                >
+                  <option value="ALL">All Sessions</option>
+                  {availableStructureSessions.map((session) => (
+                    <option key={session} value={session}>
+                      {session}
+                    </option>
                   ))}
-                </tbody>
-              </table>
+                </select>
+              </div>
+
+              {/* Term Filter (Cascading) */}
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Term:</label>
+                <select
+                  value={structureTermFilter}
+                  onChange={(e) => handleStructureTermChange(e.target.value)}
+                  className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
+                >
+                  <option value="ALL">All Terms</option>
+                  {availableStructureTerms.map((term) => (
+                    <option key={term} value={term}>
+                      {term}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
-          )}
+
+            {/* Reset Filters */}
+            {hasActiveStructureFilters && (
+              <button
+                type="button"
+                onClick={handleResetStructureFilters}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+                </svg>
+                <span>Reset Filters</span>
+              </button>
+            )}
+          </div>
+
+          {/* Fee Structures Table */}
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+            {loadingStructures ? (
+              <div className="p-8 space-y-4">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-12 bg-slate-100 animate-pulse rounded-xl" />
+                ))}
+              </div>
+            ) : structures.length === 0 ? (
+              <div className="p-12 text-center">
+                <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mx-auto mb-3">
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5h16.5m-16.5 3.75h16.5m-16.5 3.75h16.5m-16.5 3.75h16.5" />
+                  </svg>
+                </div>
+                <p className="text-sm font-semibold text-slate-800">
+                  {hasActiveStructureFilters ? "No fee structures match the selected filters" : "No fee structures created yet"}
+                </p>
+                <p className="text-xs text-slate-500 mt-1">
+                  {hasActiveStructureFilters
+                    ? "Try adjusting or clearing your session and term filters."
+                    : "Click \"Create Structure\" above to set up your school fee templates."}
+                </p>
+                {hasActiveStructureFilters && (
+                  <button
+                    type="button"
+                    onClick={handleResetStructureFilters}
+                    className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+                    </svg>
+                    <span>Reset Filters</span>
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50/80 border-b border-slate-100 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      <th className="px-6 py-3.5">Structure Name</th>
+                      <th className="px-6 py-3.5">Type</th>
+                      <th className="px-6 py-3.5">Amount (₦)</th>
+                      <th className="px-6 py-3.5">Academic Year / Term</th>
+                      <th className="px-6 py-3.5">Due Date</th>
+                      <th className="px-6 py-3.5 text-center">Assigned Count</th>
+                      <th className="px-6 py-3.5 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-sm">
+                    {structures.map((st) => (
+                      <tr key={st.id} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="px-6 py-4 font-bold text-slate-900">
+                          {st.name}
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                            {st.type}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 font-extrabold text-slate-900 font-mono">
+                          {formatAmount(st.amount)}
+                        </td>
+                        <td className="px-6 py-4 text-xs text-slate-600">
+                          {st.academicYear} {st.term ? `(${st.term})` : ""}
+                        </td>
+                        <td className="px-6 py-4 text-xs text-slate-600 font-mono">
+                          {new Date(st.dueDate).toLocaleDateString()}
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700">
+                            {st._count?.fees ?? 0} Students
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setError("");
+                                setAssigningStructure(st);
+                              }}
+                              className="inline-flex items-center justify-center gap-1 w-28 h-8 rounded-lg bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-xs transition-colors cursor-pointer shadow-2xs"
+                            >
+                              <span>Assign fee</span>
+                            </button>
+
+                            <div className="relative inline-block text-left" data-row-menu="true">
+                              <button
+                                type="button"
+                                aria-label="More actions"
+                                aria-expanded={openMenuId === `structure-${st.id}`}
+                                onClick={() => setOpenMenuId(openMenuId === `structure-${st.id}` ? null : `structure-${st.id}`)}
+                                className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-slate-300"
+                              >
+                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                  <circle cx="12" cy="5" r="1.75" />
+                                  <circle cx="12" cy="12" r="1.75" />
+                                  <circle cx="12" cy="19" r="1.75" />
+                                </svg>
+                              </button>
+
+                              {openMenuId === `structure-${st.id}` && (
+                                <div className="absolute right-0 top-full mt-1 w-36 rounded-xl bg-white border border-slate-200/90 shadow-lg py-1 z-40 animate-in fade-in zoom-in-95 duration-100">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenMenuId(null);
+                                      handleOpenEditStructure(st);
+                                    }}
+                                    className="w-full text-left px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-slate-900 flex items-center gap-2 transition-colors cursor-pointer"
+                                  >
+                                    <svg className="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" />
+                                    </svg>
+                                    <span>Edit</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenMenuId(null);
+                                      handleDeleteStructureClick(st);
+                                    }}
+                                    className="w-full text-left px-3.5 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 flex items-center gap-2 transition-colors cursor-pointer"
+                                  >
+                                    <svg className="w-3.5 h-3.5 text-rose-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                                    </svg>
+                                    <span>Delete</span>
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -1028,29 +1428,63 @@ export default function FeesManagementPage() {
       {/* TAB 2: STUDENT FEES TAB                                             */}
       {/* =================================================================== */}
       {activeTab === "student_fees" && (
-        <div className="space-y-6">
+        <div className="space-y-4">
           {/* Controls & Filter Bar */}
-          <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-            {/* Search Input & Filters Bar */}
-            <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-3">
+          <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs space-y-3">
+            {/* Top row: Search, Session, Term, Class, Admission Level */}
+            <div className="flex flex-wrap items-center gap-3">
               {/* Search Input */}
-              <div className="relative flex-1 max-w-md">
+              <div className="relative flex-1 min-w-[200px] max-w-sm">
                 <svg className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
                 </svg>
                 <input
                   type="text"
-                  placeholder="Search by student name or ID..."
+                  placeholder="Search student or ID..."
                   value={searchQuery}
                   onChange={handleSearchChange}
                   className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
                 />
               </div>
 
+              {/* Session Filter */}
+              <div className="flex items-center gap-1.5">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Session:</label>
+                <select
+                  value={studentFeeSessionFilter}
+                  onChange={(e) => handleStudentFeeSessionChange(e.target.value)}
+                  className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
+                >
+                  <option value="ALL">All Sessions</option>
+                  {availableStructureSessions.map((session) => (
+                    <option key={session} value={session}>
+                      {session}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Term Filter (Cascading) */}
+              <div className="flex items-center gap-1.5">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Term:</label>
+                <select
+                  value={studentFeeTermFilter}
+                  onChange={(e) => handleStudentFeeTermChange(e.target.value)}
+                  className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
+                >
+                  <option value="ALL">All Terms</option>
+                  {availableStudentFeeTerms.map((term) => (
+                    <option key={term} value={term}>
+                      {term}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               {/* Class Filter Dropdown (FIX-008) */}
               <select
                 value={classFilter}
-                onChange={(e) => setClassFilter(e.target.value)}
+                onChange={(e) => handleClassFilterChange(e.target.value)}
                 className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
               >
                 <option value="ALL">All Classes</option>
@@ -1064,7 +1498,7 @@ export default function FeesManagementPage() {
               {/* Admission Level Filter Dropdown (FIX-016) */}
               <select
                 value={admissionLevelFilter}
-                onChange={(e) => setAdmissionLevelFilter(e.target.value)}
+                onChange={(e) => handleAdmissionLevelFilterChange(e.target.value)}
                 className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
               >
                 <option value="ALL">All Admission Levels</option>
@@ -1076,21 +1510,61 @@ export default function FeesManagementPage() {
               </select>
             </div>
 
-            {/* Status Filter Pills */}
-            <div className="flex flex-wrap items-center gap-1.5 pt-2 md:pt-0">
-              {["ALL", "PENDING", "PAID", "OVERDUE", "PARTIAL", "WAIVED"].map((st) => (
+            {/* Bottom row: Date-Paid Range Filters, Status Pills, and Reset Action */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
+              <div className="flex flex-wrap items-center gap-3">
+                {/* Date Paid Range */}
+                <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium">
+                  <span className="font-bold text-slate-500 uppercase tracking-wider text-[11px]">Paid Date:</span>
+                  <input
+                    type="date"
+                    value={paidFromFilter}
+                    onChange={(e) => handlePaidFromChange(e.target.value)}
+                    className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                    title="Paid From Date"
+                  />
+                  <span className="text-slate-400">to</span>
+                  <input
+                    type="date"
+                    value={paidToFilter}
+                    onChange={(e) => handlePaidToChange(e.target.value)}
+                    className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                    title="Paid To Date"
+                  />
+                </div>
+
+                {/* Status Filter Pills */}
+                <div className="flex flex-wrap items-center gap-1">
+                  {["ALL", "PENDING", "PAID", "OVERDUE", "PARTIAL", "WAIVED"].map((st) => (
+                    <button
+                      key={st}
+                      type="button"
+                      onClick={() => handleStatusFilterChange(st)}
+                      className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        statusFilter === st
+                          ? "bg-slate-900 text-white shadow-2xs"
+                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                      }`}
+                    >
+                      {st}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Reset Filters */}
+              {hasActiveStudentFeeFilters && (
                 <button
-                  key={st}
-                  onClick={() => setStatusFilter(st)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    statusFilter === st
-                      ? "bg-slate-900 text-white shadow-2xs"
-                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                  }`}
+                  type="button"
+                  onClick={handleResetStudentFeeFilters}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold text-xs transition-colors cursor-pointer ml-auto"
                 >
-                  {st}
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+                  </svg>
+                  <span>Reset Filters</span>
                 </button>
-              ))}
+              )}
             </div>
           </div>
 
@@ -1104,10 +1578,31 @@ export default function FeesManagementPage() {
               </div>
             ) : studentFees.length === 0 ? (
               <div className="p-12 text-center">
-                <p className="text-sm font-semibold text-slate-800">No student fees found</p>
-                <p className="text-xs text-slate-500 mt-1">
-                  Try adjusting your search filter or assign fee structures to students.
+                <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mx-auto mb-3">
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                  </svg>
+                </div>
+                <p className="text-sm font-semibold text-slate-800">
+                  {hasActiveStudentFeeFilters ? "No student fees match the selected filters" : "No student fees found"}
                 </p>
+                <p className="text-xs text-slate-500 mt-1">
+                  {hasActiveStudentFeeFilters
+                    ? "Try adjusting or clearing your filters to see more results."
+                    : "Try adjusting your search filter or assign fee structures to students."}
+                </p>
+                {hasActiveStudentFeeFilters && (
+                  <button
+                    type="button"
+                    onClick={handleResetStudentFeeFilters}
+                    className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+                    </svg>
+                    <span>Reset Filters</span>
+                  </button>
+                )}
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -1139,13 +1634,21 @@ export default function FeesManagementPage() {
                             </div>
                           </td>
                           <td className="px-6 py-4 text-xs font-medium text-slate-700">
-                            {fee.feeStructure.name}
+                            <div>{fee.feeStructure.name}</div>
+                            <div className="text-[11px] text-slate-400 mt-0.5">
+                              {fee.feeStructure.academicYear} {fee.feeStructure.term ? `(${fee.feeStructure.term})` : ""}
+                            </div>
                           </td>
                           <td className="px-6 py-4 font-extrabold text-slate-900 font-mono">
                             {formatAmount(fee.amountDue)}
                           </td>
                           <td className="px-6 py-4 font-extrabold text-emerald-700 font-mono">
-                            {formatAmount(fee.amountPaid)}
+                            <div>{formatAmount(fee.amountPaid)}</div>
+                            {fee.payments && fee.payments.length > 0 && (
+                              <div className="text-[11px] font-sans font-medium text-slate-500 mt-0.5 whitespace-nowrap">
+                                Last paid: {new Date(fee.payments[0].paidAt).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" })}
+                              </div>
+                            )}
                           </td>
                           <td className="px-6 py-4 text-center">
                             {renderStatusBadge(fee.status)}
@@ -1153,46 +1656,132 @@ export default function FeesManagementPage() {
                           <td className="px-6 py-4 text-xs text-slate-600 font-mono">
                             {new Date(fee.dueDate).toLocaleDateString()}
                           </td>
-                          <td className="px-6 py-4 text-right space-x-2">
-                            {Number(fee.amountPaid) > 0 && (
-                              <button
-                                onClick={() => handleOpenViewReceipts(fee)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-blue-200 bg-blue-50/60 hover:bg-blue-100/80 text-blue-700 font-semibold text-xs transition-colors cursor-pointer"
-                              >
-                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-                                </svg>
-                                <span>Receipts</span>
-                              </button>
-                            )}
-                            {!isFullyPaid && (
-                              <button
-                                onClick={() => {
-                                  setError("");
-                                  setPayingFee(fee);
-                                  const remaining = parseFloat(String(fee.amountDue)) - parseFloat(String(fee.amountPaid));
-                                  const raw = remaining > 0 ? String(remaining) : "";
-                                  setRawAmount(raw);
-                                  setPaymentForm({
-                                    amount: raw,
-                                    method: "cash",
-                                    reference: "",
-                                  });
-                                  setDisplayAmount(formatDisplayAmount(raw));
-                                }}
-                                className="inline-flex items-center px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-2xs transition-colors cursor-pointer"
-                              >
-                                Record Payment
-                              </button>
-                            )}
-                            {fee.status !== "PAID" && (
-                              <button
-                                onClick={() => handleOpenChangeStatus(fee)}
-                                className="inline-flex items-center px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
-                              >
-                                Change Status
-                              </button>
-                            )}
+                          <td className="px-6 py-4">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {/* Case A: Unpaid or Partially Paid Fees (PENDING, PARTIAL, OVERDUE) */}
+                              {!isFullyPaid && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setError("");
+                                      setPayingFee(fee);
+                                      const remaining = parseFloat(String(fee.amountDue)) - parseFloat(String(fee.amountPaid));
+                                      const raw = remaining > 0 ? String(remaining) : "";
+                                      setRawAmount(raw);
+                                      setPaymentForm({
+                                        amount: raw,
+                                        method: "cash",
+                                        reference: "",
+                                      });
+                                      setDisplayAmount(formatDisplayAmount(raw));
+                                    }}
+                                    className="inline-flex items-center justify-center gap-1.5 w-[130px] h-8 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-semibold text-xs shadow-2xs transition-colors cursor-pointer"
+                                  >
+                                    Record Payment
+                                  </button>
+
+                                  <div className="relative inline-block text-left" data-row-menu="true">
+                                    <button
+                                      type="button"
+                                      aria-label="More actions"
+                                      aria-expanded={openMenuId === `fee-${fee.id}`}
+                                      onClick={() => setOpenMenuId(openMenuId === `fee-${fee.id}` ? null : `fee-${fee.id}`)}
+                                      className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-slate-300"
+                                    >
+                                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                        <circle cx="12" cy="5" r="1.75" />
+                                        <circle cx="12" cy="12" r="1.75" />
+                                        <circle cx="12" cy="19" r="1.75" />
+                                      </svg>
+                                    </button>
+
+                                    {openMenuId === `fee-${fee.id}` && (
+                                      <div className="absolute right-0 top-full mt-1 w-40 rounded-xl bg-white border border-slate-200/90 shadow-lg py-1 z-40 animate-in fade-in zoom-in-95 duration-100">
+                                        {Number(fee.amountPaid) > 0 && (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setOpenMenuId(null);
+                                              handleOpenViewReceipts(fee);
+                                            }}
+                                            className="w-full text-left px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-slate-900 flex items-center gap-2 transition-colors cursor-pointer"
+                                          >
+                                            <svg className="w-3.5 h-3.5 text-blue-600" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                                            </svg>
+                                            <span>Receipts</span>
+                                          </button>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setOpenMenuId(null);
+                                            handleOpenChangeStatus(fee);
+                                          }}
+                                          className="w-full text-left px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-slate-900 flex items-center gap-2 transition-colors cursor-pointer"
+                                        >
+                                          <svg className="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+                                          </svg>
+                                          <span>Change Status</span>
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                </>
+                              )}
+
+                              {/* Case B: Fully Paid or Waived Fees (PAID, WAIVED) */}
+                              {isFullyPaid && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenViewReceipts(fee)}
+                                    className="inline-flex items-center justify-center gap-1.5 w-[130px] h-8 rounded-lg border border-blue-200 bg-blue-50/60 hover:bg-blue-100/80 text-blue-700 font-semibold text-xs transition-colors cursor-pointer"
+                                  >
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                                    </svg>
+                                    <span>Receipts</span>
+                                  </button>
+
+                                  <div className="relative inline-block text-left" data-row-menu="true">
+                                    <button
+                                      type="button"
+                                      aria-label="More actions"
+                                      aria-expanded={openMenuId === `fee-${fee.id}`}
+                                      onClick={() => setOpenMenuId(openMenuId === `fee-${fee.id}` ? null : `fee-${fee.id}`)}
+                                      className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-slate-300"
+                                    >
+                                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                        <circle cx="12" cy="5" r="1.75" />
+                                        <circle cx="12" cy="12" r="1.75" />
+                                        <circle cx="12" cy="19" r="1.75" />
+                                      </svg>
+                                    </button>
+
+                                    {openMenuId === `fee-${fee.id}` && (
+                                      <div className="absolute right-0 top-full mt-1 w-40 rounded-xl bg-white border border-slate-200/90 shadow-lg py-1 z-40 animate-in fade-in zoom-in-95 duration-100">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setOpenMenuId(null);
+                                            handleOpenChangeStatus(fee);
+                                          }}
+                                          className="w-full text-left px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-slate-900 flex items-center gap-2 transition-colors cursor-pointer"
+                                        >
+                                          <svg className="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+                                          </svg>
+                                          <span>Change Status</span>
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                </>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1981,31 +2570,65 @@ export default function FeesManagementPage() {
 
             <div className="p-6 space-y-4">
               {/* Summary Cards */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Total Due</span>
-                  <span className="text-sm font-extrabold text-slate-900 font-mono">
-                    {formatNaira(viewingReceiptsFee.amountDue)}
-                  </span>
+              {viewingReceiptsFee.status === "WAIVED" ? (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                    <span className="text-[10px] uppercase font-bold text-slate-500 block">Total Due</span>
+                    <span className="text-sm font-extrabold text-slate-900 font-mono">
+                      {formatNaira(viewingReceiptsFee.amountDue)}
+                    </span>
+                  </div>
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                    <span className="text-[10px] uppercase font-bold text-emerald-700 block">Total Paid</span>
+                    <span className="text-sm font-extrabold text-emerald-700 font-mono">
+                      {formatNaira(viewingReceiptsFee.amountPaid)}
+                    </span>
+                  </div>
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                    <span className="text-[10px] uppercase font-bold text-amber-800 block">Waived</span>
+                    <span className="text-sm font-extrabold text-amber-800 font-mono">
+                      {formatNaira(
+                        Math.max(
+                          0,
+                          parseFloat(String(viewingReceiptsFee.amountDue)) - parseFloat(String(viewingReceiptsFee.amountPaid))
+                        )
+                      )}
+                    </span>
+                  </div>
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                    <span className="text-[10px] uppercase font-bold text-slate-500 block">Balance</span>
+                    <span className="text-sm font-extrabold text-slate-900 font-mono">
+                      {formatNaira(0)}
+                    </span>
+                  </div>
                 </div>
-                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
-                  <span className="text-[10px] uppercase font-bold text-emerald-700 block">Total Paid</span>
-                  <span className="text-sm font-extrabold text-emerald-700 font-mono">
-                    {formatNaira(viewingReceiptsFee.amountPaid)}
-                  </span>
+              ) : (
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                    <span className="text-[10px] uppercase font-bold text-slate-500 block">Total Due</span>
+                    <span className="text-sm font-extrabold text-slate-900 font-mono">
+                      {formatNaira(viewingReceiptsFee.amountDue)}
+                    </span>
+                  </div>
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                    <span className="text-[10px] uppercase font-bold text-emerald-700 block">Total Paid</span>
+                    <span className="text-sm font-extrabold text-emerald-700 font-mono">
+                      {formatNaira(viewingReceiptsFee.amountPaid)}
+                    </span>
+                  </div>
+                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                    <span className="text-[10px] uppercase font-bold text-blue-700 block">Balance</span>
+                    <span className="text-sm font-extrabold text-blue-700 font-mono">
+                      {formatNaira(
+                        Math.max(
+                          0,
+                          parseFloat(String(viewingReceiptsFee.amountDue)) - parseFloat(String(viewingReceiptsFee.amountPaid))
+                        )
+                      )}
+                    </span>
+                  </div>
                 </div>
-                <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">
-                  <span className="text-[10px] uppercase font-bold text-blue-700 block">Balance</span>
-                  <span className="text-sm font-extrabold text-blue-700 font-mono">
-                    {formatNaira(
-                      Math.max(
-                        0,
-                        parseFloat(String(viewingReceiptsFee.amountDue)) - parseFloat(String(viewingReceiptsFee.amountPaid))
-                      )
-                    )}
-                  </span>
-                </div>
-              </div>
+              )}
 
               {/* Payments List */}
               {loadingFeePayments ? (

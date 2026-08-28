@@ -133,15 +133,15 @@ export const GET = withAuth(
       // Build where clause
       const where: Record<string, unknown> = { schoolId };
 
-      if (academicYear) {
+      if (academicYear && academicYear !== "ALL") {
         where.academicYear = academicYear;
       }
 
-      if (type && VALID_FEE_TYPES.includes(type)) {
+      if (type && type !== "ALL" && VALID_FEE_TYPES.includes(type)) {
         where.type = type as FeeType;
       }
 
-      if (term) {
+      if (term && term !== "ALL") {
         where.term = term;
       }
 

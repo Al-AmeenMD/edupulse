@@ -88,6 +88,15 @@ export const GET = withAuth(
         );
       }
 
+      // --- Look up recordedBy user name with tenant isolation ---
+      const recorder = await prisma.user.findFirst({
+        where: { id: payment.recordedBy, schoolId },
+        select: { firstName: true, lastName: true },
+      });
+      const recordedByName = recorder
+        ? `${recorder.firstName} ${recorder.lastName}`.trim()
+        : "School Administrator";
+
       // --- Generate PDF with pdf-lib ---
       const pdfDoc = await PDFDocument.create();
       const page = pdfDoc.addPage([595.28, 841.89]); // Standard A4
@@ -130,9 +139,15 @@ export const GET = withAuth(
         }
       }
 
-      const remainingBalance = amountDue.greaterThan(cumulativePaid)
-        ? amountDue.sub(cumulativePaid)
+      const isFeeWaived = payment.fee.status === "WAIVED";
+      const totalPaidAllTime = new Prisma.Decimal(payment.fee.amountPaid);
+      const amountWaived = isFeeWaived
+        ? (amountDue.greaterThan(totalPaidAllTime) ? amountDue.sub(totalPaidAllTime) : new Prisma.Decimal(0))
         : new Prisma.Decimal(0);
+
+      const remainingBalance = isFeeWaived
+        ? new Prisma.Decimal(0)
+        : (amountDue.greaterThan(cumulativePaid) ? amountDue.sub(cumulativePaid) : new Prisma.Decimal(0));
       const hasRemainingBalance = remainingBalance.greaterThan(0);
 
       // --- Palette ---
@@ -433,6 +448,24 @@ export const GET = withAuth(
         color: darkSlate,
       });
 
+      if (isFeeWaived) {
+        currentY -= 20;
+        page.drawText("Fee Waived Amount:", {
+          x: 290,
+          y: currentY,
+          size: 9,
+          font: fontRegular,
+          color: rgb(0.75, 0.45, 0.05),
+        });
+        page.drawText(formatNairaPlain(amountWaived.toFixed(2)), {
+          x: 440,
+          y: currentY,
+          size: 9,
+          font: fontBold,
+          color: rgb(0.75, 0.45, 0.05),
+        });
+      }
+
       currentY -= 20;
       page.drawText("Remaining Outstanding Balance:", {
         x: 245,
@@ -467,7 +500,7 @@ export const GET = withAuth(
       });
 
       page.drawText(
-        `Recorded By: ${payment.recordedBy} | Generated: ${new Date().toUTCString()}`,
+        `Recorded By: ${recordedByName} | Generated: ${new Date().toUTCString()}`,
         {
           x: 40,
           y: footerY,
