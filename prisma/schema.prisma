@@ -32,6 +32,7 @@ model School {
   submissions   Submission[]
   payments      Payment[]
   expenses      Expense[]
+  budgets       Budget[]
 
   @@map("schools")
 }
@@ -385,3 +386,33 @@ model Submission {
   @@unique([assessmentId, studentId])
   @@map("submissions")
 }
+
+model Budget {
+  id           String           @id @default(cuid())
+  schoolId     String
+  academicYear String
+  term         String
+  amount       Decimal          @db.Decimal(10, 2)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  school       School           @relation(fields: [schoolId], references: [id])
+  auditLogs    BudgetAuditLog[]
+
+  @@unique([schoolId, academicYear, term])
+  @@map("budgets")
+}
+
+model BudgetAuditLog {
+  id             String   @id @default(cuid())
+  budgetId       String
+  changedBy      String
+  changedAt      DateTime @default(now())
+  previousAmount Decimal? @db.Decimal(10, 2)
+  newAmount      Decimal  @db.Decimal(10, 2)
+
+  budget         Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+
+  @@map("budget_audit_logs")
+}
+
