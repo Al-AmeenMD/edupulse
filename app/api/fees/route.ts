@@ -2,11 +2,12 @@ import { FeeStatus, Role } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/middleware/withAuth";
 import { prisma } from "@/lib/prisma";
+import { executeFeeAssignment } from "@/lib/services/feeAssignment";
 
 const VALID_FEE_STATUSES: string[] = Object.values(FeeStatus);
 
 // ---------------------------------------------------------------------------
-// POST /api/fees — Assign fee(s) to student(s)
+// POST /api/fees — Assign fee(s) to student(s) (Single or Multi-select)
 // ---------------------------------------------------------------------------
 export const POST = withAuth(
   async (req) => {
@@ -22,20 +23,24 @@ export const POST = withAuth(
 
       const body = (await req.json()) as {
         feeStructureId?: string;
+        feeStructureIds?: string[];
         studentId?: string;
         classId?: string;
         admissionLevel?: string;
       };
 
       const feeStructureId = body.feeStructureId?.trim();
+      const feeStructureIds = body.feeStructureIds;
       const studentId = body.studentId?.trim();
       const classId = body.classId?.trim();
       const admissionLevel = body.admissionLevel?.trim();
 
-      // --- Required field validation ---
-      if (!feeStructureId) {
+      const isMultiSelect = Array.isArray(feeStructureIds) && feeStructureIds.length > 0;
+      const structureIds = isMultiSelect ? feeStructureIds : feeStructureId ? [feeStructureId] : [];
+
+      if (structureIds.length === 0) {
         return NextResponse.json(
-          { error: "feeStructureId is required" },
+          { error: "feeStructureId or feeStructureIds is required" },
           { status: 400 }
         );
       }
@@ -47,314 +52,85 @@ export const POST = withAuth(
         );
       }
 
-      // --- Verify fee structure exists and belongs to this school ---
-      const feeStructure = await prisma.feeStructure.findUnique({
-        where: { id: feeStructureId },
-        select: {
-          id: true,
-          schoolId: true,
-          amount: true,
-          dueDate: true,
-        },
+      const summary = await executeFeeAssignment({
+        schoolId,
+        feeStructureIds: structureIds,
+        studentId,
+        classId,
+        admissionLevel,
       });
 
-      if (!feeStructure || feeStructure.schoolId !== schoolId) {
-        return NextResponse.json(
-          { error: "Fee structure not found" },
-          { status: 404 }
-        );
+      // -----------------------------------------------------------------
+      // Multi-Structure Response
+      // -----------------------------------------------------------------
+      if (isMultiSelect) {
+        return NextResponse.json({ data: summary }, { status: 201 });
       }
 
-      const amountDue = feeStructure.amount;
-      const dueDate = feeStructure.dueDate;
+      // -----------------------------------------------------------------
+      // Backward Compatibility: Single Structure Responses
+      // -----------------------------------------------------------------
+      const singleResult = summary.results[0];
 
-      // -----------------------------------------------------------------
-      // Option 1: Single student assignment
-      // -----------------------------------------------------------------
       if (studentId && !classId && !admissionLevel) {
-        // Verify student belongs to this school
-        const student = await prisma.student.findFirst({
-          where: { id: studentId, schoolId },
-          select: { id: true },
-        });
-
-        if (!student) {
-          return NextResponse.json(
-            { error: "Student not found" },
-            { status: 404 }
-          );
-        }
-
-        // Check for duplicate — skip if student already has a fee for this structure
-        const existingFee = await prisma.fee.findFirst({
-          where: {
-            schoolId,
-            studentId,
-            feeStructureId,
-          },
-        });
-
-        if (existingFee) {
+        if (summary.totalFeesCreated === 0 && summary.totalFeesSkipped > 0) {
           return NextResponse.json(
             { error: "Fee already assigned to this student for this fee structure" },
             { status: 409 }
           );
         }
-
-        const fee = await prisma.fee.create({
-          data: {
-            schoolId,
-            studentId,
-            feeStructureId,
-            amountDue,
-            dueDate,
-            status: "PENDING",
-          },
-          include: {
-            student: {
-              select: {
-                id: true,
-                studentId: true,
-                firstName: true,
-                lastName: true,
-                admissionLevel: true,
-                classEnrollments: {
-                  select: { class: { select: { id: true, name: true } } },
-                  take: 1,
-                  orderBy: { enrolledAt: "desc" },
-                },
-              },
-            },
-            feeStructure: {
-              select: {
-                id: true,
-                name: true,
-                type: true,
-                academicYear: true,
-                term: true,
-              },
-            },
-          },
-        });
-
-        return NextResponse.json({ data: fee }, { status: 201 });
+        return NextResponse.json({ data: singleResult?.fees[0] }, { status: 201 });
       }
 
-      // -----------------------------------------------------------------
-      // Option 2: Bulk assign to all students enrolled in a class
-      // -----------------------------------------------------------------
       if (classId && !admissionLevel) {
-        // Verify class belongs to this school
-        const classRecord = await prisma.class.findFirst({
-          where: { id: classId, schoolId },
-          select: { id: true },
-        });
-
-        if (!classRecord) {
-          return NextResponse.json(
-            { error: "Class not found" },
-            { status: 404 }
-          );
-        }
-
-        // Get all enrolled students in the class
-        const enrollments = await prisma.classEnrollment.findMany({
-          where: { classId },
-          select: { studentId: true },
-        });
-
-        if (enrollments.length === 0) {
-          return NextResponse.json(
-            { error: "No students enrolled in this class" },
-            { status: 400 }
-          );
-        }
-
-        const enrolledStudentIds = enrollments.map((e) => e.studentId);
-
-        // Find students who already have a fee for this structure (to skip)
-        const existingFees = await prisma.fee.findMany({
-          where: {
-            schoolId,
-            feeStructureId,
-            studentId: { in: enrolledStudentIds },
-          },
-          select: { studentId: true },
-        });
-
-        const alreadyAssigned = new Set(existingFees.map((f) => f.studentId));
-
-        // Filter to only students without an existing fee
-        const newStudentIds = enrolledStudentIds.filter(
-          (id) => !alreadyAssigned.has(id)
-        );
-
-        if (newStudentIds.length === 0) {
+        if (summary.totalFeesCreated === 0 && summary.totalFeesSkipped > 0) {
           return NextResponse.json(
             { error: "Fee already assigned to all students in this class" },
             { status: 409 }
           );
         }
-
-        // Bulk create in a transaction
-        const createOperations = newStudentIds.map((sid) =>
-          prisma.fee.create({
-            data: {
-              schoolId,
-              studentId: sid,
-              feeStructureId,
-              amountDue,
-              dueDate,
-              status: "PENDING",
-            },
-            include: {
-              student: {
-                select: {
-                  id: true,
-                  studentId: true,
-                  firstName: true,
-                  lastName: true,
-                  admissionLevel: true,
-                  classEnrollments: {
-                    select: { class: { select: { id: true, name: true } } },
-                    take: 1,
-                    orderBy: { enrolledAt: "desc" },
-                  },
-                },
-              },
-              feeStructure: {
-                select: {
-                  id: true,
-                  name: true,
-                  type: true,
-                  academicYear: true,
-                  term: true,
-                },
-              },
-            },
-          })
-        );
-
-        const createdFees = await prisma.$transaction(createOperations);
-
         return NextResponse.json(
           {
-            data: createdFees,
+            data: singleResult?.fees || [],
             summary: {
-              totalStudents: enrolledStudentIds.length,
-              assigned: createdFees.length,
-              skipped: alreadyAssigned.size,
+              totalStudents: summary.totalTargetStudents,
+              assigned: summary.totalFeesCreated,
+              skipped: summary.totalFeesSkipped,
             },
           },
           { status: 201 }
         );
       }
 
-      // -----------------------------------------------------------------
-      // Option 3: Bulk assign by Admission Level (FIX-009 / FIX-014)
-      // -----------------------------------------------------------------
       if (admissionLevel) {
-        // Find active students in this school with matching admissionLevel
-        const matchingStudents = await prisma.student.findMany({
-          where: {
-            schoolId,
-            admissionLevel,
-          },
-          select: { id: true },
-        });
-
-        if (matchingStudents.length === 0) {
-          return NextResponse.json(
-            { error: `No active students found with admission level '${admissionLevel}'` },
-            { status: 400 }
-          );
-        }
-
-        const eligibleStudentIds = matchingStudents.map((s) => s.id);
-
-        // Find students who already have a fee for this structure (to skip)
-        const existingFees = await prisma.fee.findMany({
-          where: {
-            schoolId,
-            feeStructureId,
-            studentId: { in: eligibleStudentIds },
-          },
-          select: { studentId: true },
-        });
-
-        const alreadyAssigned = new Set(existingFees.map((f) => f.studentId));
-
-        // Filter to only students without an existing fee
-        const newStudentIds = eligibleStudentIds.filter(
-          (id) => !alreadyAssigned.has(id)
-        );
-
-        if (newStudentIds.length === 0) {
+        if (summary.totalFeesCreated === 0 && summary.totalFeesSkipped > 0) {
           return NextResponse.json(
             { error: `Fee structure already assigned to all students with admission level '${admissionLevel}'` },
             { status: 409 }
           );
         }
-
-        // Bulk create in a transaction
-        const createOperations = newStudentIds.map((sid) =>
-          prisma.fee.create({
-            data: {
-              schoolId,
-              studentId: sid,
-              feeStructureId,
-              amountDue,
-              dueDate,
-              status: "PENDING",
-            },
-            include: {
-              student: {
-                select: {
-                  id: true,
-                  studentId: true,
-                  firstName: true,
-                  lastName: true,
-                  admissionLevel: true,
-                  classEnrollments: {
-                    select: { class: { select: { id: true, name: true } } },
-                    take: 1,
-                    orderBy: { enrolledAt: "desc" },
-                  },
-                },
-              },
-              feeStructure: {
-                select: {
-                  id: true,
-                  name: true,
-                  type: true,
-                  academicYear: true,
-                  term: true,
-                },
-              },
-            },
-          })
-        );
-
-        const createdFees = await prisma.$transaction(createOperations);
-
         return NextResponse.json(
           {
-            data: createdFees,
+            data: singleResult?.fees || [],
             summary: {
-              totalStudents: eligibleStudentIds.length,
-              assigned: createdFees.length,
-              skipped: alreadyAssigned.size,
+              totalStudents: summary.totalTargetStudents,
+              assigned: summary.totalFeesCreated,
+              skipped: summary.totalFeesSkipped,
             },
           },
           { status: 201 }
         );
       }
 
-      return NextResponse.json(
-        { error: "Either studentId, classId, or admissionLevel is required" },
-        { status: 400 }
-      );
-    } catch {
+      return NextResponse.json({ data: summary }, { status: 201 });
+    } catch (err: any) {
+      if (err.name === "FeeAssignmentError") {
+        return NextResponse.json(
+          { error: err.message },
+          { status: err.statusCode || 400 }
+        );
+      }
+      console.error("POST /api/fees error:", err);
       return NextResponse.json(
         { error: "Internal server error" },
         { status: 500 }

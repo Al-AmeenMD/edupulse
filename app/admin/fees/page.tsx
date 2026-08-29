@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo, useRef, FormEvent, Suspense } from "react
 import { useSearchParams } from "next/navigation";
 
 // Types
-type FeeType = "TUITION" | "TRANSPORT" | "UNIFORM" | "EXAM" | "MISCELLANEOUS";
+type FeeType = "TUITION" | "TRANSPORT" | "UNIFORM" | "EXAM" | "MISCELLANEOUS" | "FEEDING";
 type FeeStatus = "PENDING" | "PAID" | "OVERDUE" | "PARTIAL" | "WAIVED";
 
 interface FeeStructureItem {
@@ -18,6 +18,31 @@ interface FeeStructureItem {
   _count?: {
     fees?: number;
   };
+}
+
+interface FeePackageItem {
+  id: string;
+  name: string;
+  description?: string | null;
+  academicYear: string;
+  term?: string | null;
+  totalAmount: string;
+  structuresCount: number;
+  createdAt: string;
+  updatedAt: string;
+  items: Array<{
+    id: string;
+    feeStructureId: string;
+    feeStructure: {
+      id: string;
+      name: string;
+      type: FeeType;
+      amount: string;
+      academicYear: string;
+      term?: string | null;
+      dueDate: string;
+    } | null;
+  }>;
 }
 
 interface StudentItem {
@@ -91,13 +116,15 @@ function formatNaira(amount: number | string): string {
   return `₦${formatAmount(amount)}`;
 }
 
-function FeesTabSync({ onTabChange }: { onTabChange: (tab: "structures" | "student_fees") => void }) {
+function FeesTabSync({ onTabChange }: { onTabChange: (tab: "structures" | "student_fees" | "packages") => void }) {
   const searchParams = useSearchParams();
   const tabParam = searchParams ? searchParams.get("tab") : null;
 
   useEffect(() => {
     if (tabParam === "student_fees" || tabParam === "students") {
       onTabChange("student_fees");
+    } else if (tabParam === "packages") {
+      onTabChange("packages");
     } else if (tabParam === "structures") {
       onTabChange("structures");
     }
@@ -107,7 +134,7 @@ function FeesTabSync({ onTabChange }: { onTabChange: (tab: "structures" | "stude
 }
 
 export default function FeesManagementPage() {
-  const [activeTab, setActiveTab] = useState<"structures" | "student_fees">("structures");
+  const [activeTab, setActiveTab] = useState<"structures" | "student_fees" | "packages">("structures");
 
   // Tab 1: Fee Structures State & Filters
   const [structures, setStructures] = useState<FeeStructureItem[]>([]);
@@ -137,6 +164,56 @@ export default function FeesManagementPage() {
   const [selectedAdmissionLevel, setSelectedAdmissionLevel] = useState("");
   const [assigningFee, setAssigningFee] = useState(false);
   const [assignSummary, setAssignSummary] = useState<string | null>(null);
+  const [assignModalError, setAssignModalError] = useState("");
+
+  // Multi-Select Fee Structures State
+  const [selectedStructureIds, setSelectedStructureIds] = useState<string[]>([]);
+  const [isMultiAssignOpen, setIsMultiAssignOpen] = useState(false);
+  const [multiAssignMode, setMultiAssignMode] = useState<"single" | "class" | "admissionLevel">("single");
+  const [multiAssignStudentId, setMultiAssignStudentId] = useState("");
+  const [multiAssignClassId, setMultiAssignClassId] = useState("");
+  const [multiAssignAdmissionLevel, setMultiAssignAdmissionLevel] = useState("");
+  const [submittingMultiAssign, setSubmittingMultiAssign] = useState(false);
+
+  // Tab 3: Fee Packages State & Filters
+  const [packages, setPackages] = useState<FeePackageItem[]>([]);
+  const [loadingPackages, setLoadingPackages] = useState(false);
+  const [packageSessionFilter, setPackageSessionFilter] = useState<string>("ALL");
+  const [packageTermFilter, setPackageTermFilter] = useState<string>("ALL");
+
+  // Create Package State
+  const [isCreatePackageOpen, setIsCreatePackageOpen] = useState(false);
+  const [createPackageForm, setCreatePackageForm] = useState({
+    name: "",
+    description: "",
+    academicYear: "2025/2026",
+    term: "First Term",
+    feeStructureIds: [] as string[],
+  });
+  const [submittingCreatePackage, setSubmittingCreatePackage] = useState(false);
+
+  // Edit Package State
+  const [editingPackage, setEditingPackage] = useState<FeePackageItem | null>(null);
+  const [editPackageForm, setEditPackageForm] = useState({
+    name: "",
+    description: "",
+    academicYear: "2025/2026",
+    term: "First Term",
+    feeStructureIds: [] as string[],
+  });
+  const [submittingEditPackage, setSubmittingEditPackage] = useState(false);
+
+  // Delete Package State
+  const [deletingPackage, setDeletingPackage] = useState<FeePackageItem | null>(null);
+  const [submittingDeletePackage, setSubmittingDeletePackage] = useState(false);
+
+  // Assign Package State
+  const [assigningPackage, setAssigningPackage] = useState<FeePackageItem | null>(null);
+  const [assignPackageMode, setAssignPackageMode] = useState<"single" | "class" | "admissionLevel">("single");
+  const [assignPackageStudentId, setAssignPackageStudentId] = useState("");
+  const [assignPackageClassId, setAssignPackageClassId] = useState("");
+  const [assignPackageAdmissionLevel, setAssignPackageAdmissionLevel] = useState("");
+  const [submittingAssignPackage, setSubmittingAssignPackage] = useState(false);
 
   // Tab 2: Student Fees State & Filters
   const [studentFees, setStudentFees] = useState<StudentFeeItem[]>([]);
@@ -182,6 +259,35 @@ export default function FeesManagementPage() {
     });
     return Array.from(set).sort();
   }, [allStructuresForFilters, studentFeeSessionFilter]);
+
+  // Derived distinct Sessions for Tab 3 (Fee Packages)
+  const availablePackageSessions = useMemo(() => {
+    const set = new Set<string>();
+    packages.forEach((p) => {
+      if (p.academicYear?.trim()) set.add(p.academicYear.trim());
+    });
+    allStructuresForFilters.forEach((s) => {
+      if (s.academicYear?.trim()) set.add(s.academicYear.trim());
+    });
+    return Array.from(set).sort();
+  }, [packages, allStructuresForFilters]);
+
+  // Derived distinct Terms for Tab 3 (Fee Packages)
+  const availablePackageTerms = useMemo(() => {
+    const set = new Set<string>();
+    const filtered = packageSessionFilter === "ALL"
+      ? packages
+      : packages.filter((p) => p.academicYear === packageSessionFilter);
+    filtered.forEach((p) => {
+      if (p.term?.trim()) set.add(p.term.trim());
+    });
+    allStructuresForFilters
+      .filter((s) => packageSessionFilter === "ALL" || s.academicYear === packageSessionFilter)
+      .forEach((s) => {
+        if (s.term?.trim()) set.add(s.term.trim());
+      });
+    return Array.from(set).sort();
+  }, [packages, allStructuresForFilters, packageSessionFilter]);
 
   // Derived distinct Admission Levels for filters & modals (FIX-016 & FIX-009)
   const availableLevels = useMemo(() => {
@@ -572,6 +678,36 @@ export default function FeesManagementPage() {
     }
   }
 
+  // Fetch Fee Packages with Session & Term Filters
+  async function fetchPackages(
+    session: string = packageSessionFilter,
+    term: string = packageTermFilter
+  ) {
+    try {
+      setLoadingPackages(true);
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) return;
+
+      const params = new URLSearchParams();
+      if (session !== "ALL") params.append("academicYear", session);
+      if (term !== "ALL") params.append("term", term);
+
+      const url = `/api/fees/packages${params.toString() ? `?${params.toString()}` : ""}`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setPackages(data.data || []);
+      }
+    } catch (err) {
+      console.error("Error loading fee packages:", err);
+    } finally {
+      setLoadingPackages(false);
+    }
+  }
+
   useEffect(() => {
     fetchStructures();
     fetchAllStructuresForFilters();
@@ -590,8 +726,44 @@ export default function FeesManagementPage() {
         paidFromFilter,
         paidToFilter
       );
+    } else if (activeTab === "packages") {
+      fetchPackages(packageSessionFilter, packageTermFilter);
     }
   }, [activeTab]);
+
+  // Tab 3 Filter Handlers
+  const hasActivePackageFilters = packageSessionFilter !== "ALL" || packageTermFilter !== "ALL";
+
+  const handlePackageSessionChange = (session: string) => {
+    setPackageSessionFilter(session);
+    let nextTerm = packageTermFilter;
+    if (session === "ALL") {
+      nextTerm = "ALL";
+    } else {
+      const validTerms = Array.from(new Set(
+        allStructuresForFilters
+          .filter((s) => s.academicYear === session)
+          .map((s) => s.term?.trim())
+          .filter(Boolean)
+      ));
+      if (!validTerms.includes(packageTermFilter)) {
+        nextTerm = "ALL";
+      }
+    }
+    setPackageTermFilter(nextTerm);
+    fetchPackages(session, nextTerm);
+  };
+
+  const handlePackageTermChange = (term: string) => {
+    setPackageTermFilter(term);
+    fetchPackages(packageSessionFilter, term);
+  };
+
+  const handleResetPackageFilters = () => {
+    setPackageSessionFilter("ALL");
+    setPackageTermFilter("ALL");
+    fetchPackages("ALL", "ALL");
+  };
 
   // Tab 1 Filter Handlers
   const hasActiveStructureFilters = structureSessionFilter !== "ALL" || structureTermFilter !== "ALL";
@@ -899,22 +1071,20 @@ export default function FeesManagementPage() {
     e.preventDefault();
     if (!assigningStructure) return;
     setError("");
+    setAssignModalError("");
     setSuccessMessage("");
     setAssignSummary(null);
 
     if (assignMode === "single" && !selectedStudentId) {
-      setError("Please select a student to assign this fee.");
-      setTimeout(() => setError(""), 4000);
+      setAssignModalError("Please select a student to assign this fee.");
       return;
     }
     if (assignMode === "class" && !selectedClassId) {
-      setError("Please select a class to assign this fee.");
-      setTimeout(() => setError(""), 4000);
+      setAssignModalError("Please select a class to assign this fee.");
       return;
     }
     if (assignMode === "admissionLevel" && !selectedAdmissionLevel) {
-      setError("Please select an admission level to assign this fee.");
-      setTimeout(() => setError(""), 4000);
+      setAssignModalError("Please select an admission level to assign this fee.");
       return;
     }
 
@@ -957,13 +1127,353 @@ export default function FeesManagementPage() {
       setSelectedStudentId("");
       setSelectedClassId("");
       setSelectedAdmissionLevel("");
+      setAssignModalError("");
       fetchStructures();
       if (activeTab === "student_fees") fetchStudentFees();
     } catch (err: any) {
-      setError(err.message || "An error occurred while assigning fee.");
-      setTimeout(() => setError(""), 4000);
+      setAssignModalError(err.message || "An error occurred while assigning fee.");
     } finally {
       setAssigningFee(false);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Multi-Select Fee Structures Handlers
+  // ---------------------------------------------------------------------------
+  function toggleStructureSelection(id: string) {
+    setSelectedStructureIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  }
+
+  function toggleSelectAllStructures() {
+    if (selectedStructureIds.length === structures.length) {
+      setSelectedStructureIds([]);
+    } else {
+      setSelectedStructureIds(structures.map((s) => s.id));
+    }
+  }
+
+  const selectedStructures = useMemo(() => {
+    return structures.filter((s) => selectedStructureIds.includes(s.id));
+  }, [structures, selectedStructureIds]);
+
+  const selectedTotalAmount = useMemo(() => {
+    return selectedStructures.reduce(
+      (sum, s) => sum + (typeof s.amount === "number" ? s.amount : parseFloat(s.amount as string) || 0),
+      0
+    );
+  }, [selectedStructures]);
+
+  async function handleMultiAssignSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (selectedStructureIds.length === 0) return;
+    setError("");
+    setSuccessMessage("");
+
+    if (multiAssignMode === "single" && !multiAssignStudentId) {
+      setError("Please select a student.");
+      setTimeout(() => setError(""), 4000);
+      return;
+    }
+    if (multiAssignMode === "class" && !multiAssignClassId) {
+      setError("Please select a class.");
+      setTimeout(() => setError(""), 4000);
+      return;
+    }
+    if (multiAssignMode === "admissionLevel" && !multiAssignAdmissionLevel) {
+      setError("Please select an admission level.");
+      setTimeout(() => setError(""), 4000);
+      return;
+    }
+
+    try {
+      setSubmittingMultiAssign(true);
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) return;
+
+      const payload = {
+        feeStructureIds: selectedStructureIds,
+        ...(multiAssignMode === "single"
+          ? { studentId: multiAssignStudentId }
+          : multiAssignMode === "class"
+          ? { classId: multiAssignClassId }
+          : { admissionLevel: multiAssignAdmissionLevel }),
+      };
+
+      const res = await fetch("/api/fees", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to assign fees.");
+
+      const summary = data.data;
+      setSuccessMessage(
+        `Successfully assigned ${summary.structuresProcessed} fee structures! Created ${summary.totalFeesCreated} fee records (Skipped ${summary.totalFeesSkipped} already assigned).`
+      );
+      setTimeout(() => setSuccessMessage(""), 5000);
+
+      setIsMultiAssignOpen(false);
+      setSelectedStructureIds([]);
+      setMultiAssignStudentId("");
+      setMultiAssignClassId("");
+      setMultiAssignAdmissionLevel("");
+      fetchStructures();
+      if (activeTab === "student_fees") fetchStudentFees();
+    } catch (err: any) {
+      setError(err.message || "An error occurred while assigning fees.");
+      setTimeout(() => setError(""), 5000);
+    } finally {
+      setSubmittingMultiAssign(false);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Fee Package Handlers
+  // ---------------------------------------------------------------------------
+  async function handleCreatePackageSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError("");
+    setSuccessMessage("");
+
+    if (!createPackageForm.name.trim() || !createPackageForm.academicYear.trim()) {
+      setError("Please fill in package name and academic session.");
+      setTimeout(() => setError(""), 4000);
+      return;
+    }
+
+    if (createPackageForm.feeStructureIds.length === 0) {
+      setError("Please select at least one fee structure for this package.");
+      setTimeout(() => setError(""), 4000);
+      return;
+    }
+
+    try {
+      setSubmittingCreatePackage(true);
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) return;
+
+      const payload = {
+        name: createPackageForm.name.trim(),
+        description: createPackageForm.description.trim() || undefined,
+        academicYear: createPackageForm.academicYear.trim(),
+        term: createPackageForm.term.trim() || undefined,
+        feeStructureIds: createPackageForm.feeStructureIds,
+      };
+
+      const res = await fetch("/api/fees/packages", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to create fee package.");
+
+      setIsCreatePackageOpen(false);
+      setCreatePackageForm({
+        name: "",
+        description: "",
+        academicYear: "2025/2026",
+        term: "First Term",
+        feeStructureIds: [],
+      });
+      setSuccessMessage(`Fee package "${payload.name}" created successfully!`);
+      setTimeout(() => setSuccessMessage(""), 4000);
+      fetchPackages();
+    } catch (err: any) {
+      setError(err.message || "An error occurred while creating fee package.");
+      setTimeout(() => setError(""), 4000);
+    } finally {
+      setSubmittingCreatePackage(false);
+    }
+  }
+
+  function handleOpenEditPackage(pkg: FeePackageItem) {
+    setError("");
+    setEditingPackage(pkg);
+    setEditPackageForm({
+      name: pkg.name,
+      description: pkg.description || "",
+      academicYear: pkg.academicYear,
+      term: pkg.term || "First Term",
+      feeStructureIds: pkg.items.map((it) => it.feeStructureId),
+    });
+  }
+
+  async function handleEditPackageSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!editingPackage) return;
+    setError("");
+    setSuccessMessage("");
+
+    if (!editPackageForm.name.trim() || !editPackageForm.academicYear.trim()) {
+      setError("Please fill in package name and academic session.");
+      setTimeout(() => setError(""), 4000);
+      return;
+    }
+
+    if (editPackageForm.feeStructureIds.length === 0) {
+      setError("Please select at least one fee structure for this package.");
+      setTimeout(() => setError(""), 4000);
+      return;
+    }
+
+    try {
+      setSubmittingEditPackage(true);
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) return;
+
+      const payload = {
+        name: editPackageForm.name.trim(),
+        description: editPackageForm.description.trim() || undefined,
+        academicYear: editPackageForm.academicYear.trim(),
+        term: editPackageForm.term.trim() || undefined,
+        feeStructureIds: editPackageForm.feeStructureIds,
+      };
+
+      const res = await fetch(`/api/fees/packages/${editingPackage.id}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update fee package.");
+
+      setEditingPackage(null);
+      setSuccessMessage(`Fee package "${payload.name}" updated successfully!`);
+      setTimeout(() => setSuccessMessage(""), 4000);
+      fetchPackages();
+    } catch (err: any) {
+      setError(err.message || "An error occurred while updating fee package.");
+      setTimeout(() => setError(""), 4000);
+    } finally {
+      setSubmittingEditPackage(false);
+    }
+  }
+
+  function handleDeletePackageClick(pkg: FeePackageItem) {
+    setError("");
+    setDeletingPackage(pkg);
+  }
+
+  async function handleDeletePackageConfirm() {
+    if (!deletingPackage) return;
+    setError("");
+    setSuccessMessage("");
+
+    try {
+      setSubmittingDeletePackage(true);
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) return;
+
+      const res = await fetch(`/api/fees/packages/${deletingPackage.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to delete fee package.");
+
+      setDeletingPackage(null);
+      setSuccessMessage("Fee package deleted successfully!");
+      setTimeout(() => setSuccessMessage(""), 4000);
+      fetchPackages();
+    } catch (err: any) {
+      setError(err.message || "An error occurred while deleting fee package.");
+      setTimeout(() => setError(""), 4000);
+      setDeletingPackage(null);
+    } finally {
+      setSubmittingDeletePackage(false);
+    }
+  }
+
+  function handleOpenAssignPackage(pkg: FeePackageItem) {
+    setError("");
+    setAssigningPackage(pkg);
+    setAssignPackageMode("single");
+    setAssignPackageStudentId("");
+    setAssignPackageClassId("");
+    setAssignPackageAdmissionLevel("");
+  }
+
+  async function handleAssignPackageSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!assigningPackage) return;
+    setError("");
+    setSuccessMessage("");
+
+    if (assignPackageMode === "single" && !assignPackageStudentId) {
+      setError("Please select a student.");
+      setTimeout(() => setError(""), 4000);
+      return;
+    }
+    if (assignPackageMode === "class" && !assignPackageClassId) {
+      setError("Please select a class.");
+      setTimeout(() => setError(""), 4000);
+      return;
+    }
+    if (assignPackageMode === "admissionLevel" && !assignPackageAdmissionLevel) {
+      setError("Please select an admission level.");
+      setTimeout(() => setError(""), 4000);
+      return;
+    }
+
+    try {
+      setSubmittingAssignPackage(true);
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) return;
+
+      const payload = {
+        ...(assignPackageMode === "single"
+          ? { studentId: assignPackageStudentId }
+          : assignPackageMode === "class"
+          ? { classId: assignPackageClassId }
+          : { admissionLevel: assignPackageAdmissionLevel }),
+      };
+
+      const res = await fetch(`/api/fees/packages/${assigningPackage.id}/assign`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to assign fee package.");
+
+      const summary = data.data?.summary;
+      setSuccessMessage(
+        `Package "${assigningPackage.name}" assigned successfully! Created ${summary?.totalFeesCreated ?? 0} fee records (Skipped ${summary?.totalFeesSkipped ?? 0} already assigned).`
+      );
+      setTimeout(() => setSuccessMessage(""), 5000);
+
+      setAssigningPackage(null);
+      setAssignPackageStudentId("");
+      setAssignPackageClassId("");
+      setAssignPackageAdmissionLevel("");
+      fetchStructures();
+      if (activeTab === "student_fees") fetchStudentFees();
+    } catch (err: any) {
+      setError(err.message || "An error occurred while assigning package.");
+      setTimeout(() => setError(""), 5000);
+    } finally {
+      setSubmittingAssignPackage(false);
     }
   }
 
@@ -1159,7 +1669,7 @@ export default function FeesManagementPage() {
                 type: "TUITION",
                 amount: "",
                 academicYear: "2025/2026",
-                term: "Term 1",
+                term: "First Term",
                 dueDate: "",
               });
               setCreateStructureDisplayAmount("");
@@ -1171,6 +1681,28 @@ export default function FeesManagementPage() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
             </svg>
             <span>Create Structure</span>
+          </button>
+        )}
+
+        {activeTab === "packages" && (
+          <button
+            onClick={() => {
+              setError("");
+              setCreatePackageForm({
+                name: "",
+                description: "",
+                academicYear: structureSessionFilter !== "ALL" ? structureSessionFilter : "2025/2026",
+                term: structureTermFilter !== "ALL" ? structureTermFilter : "First Term",
+                feeStructureIds: [],
+              });
+              setIsCreatePackageOpen(true);
+            }}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-sm transition-all shadow-xs cursor-pointer"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            <span>Create Package</span>
           </button>
         )}
       </div>
@@ -1216,6 +1748,16 @@ export default function FeesManagementPage() {
             }`}
           >
             Student Fees
+          </button>
+          <button
+            onClick={() => setActiveTab("packages")}
+            className={`pb-3 font-bold text-sm border-b-2 transition-all cursor-pointer ${
+              activeTab === "packages"
+                ? "border-blue-600 text-blue-600"
+                : "border-transparent text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            Fee Packages
           </button>
         </nav>
       </div>
@@ -1278,6 +1820,39 @@ export default function FeesManagementPage() {
             )}
           </div>
 
+          {/* Floating Multi-Select Toolbar */}
+          {selectedStructureIds.length > 0 && (
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-between gap-3 shadow-xs animate-in fade-in duration-150">
+              <div className="flex items-center gap-2 text-xs font-bold text-blue-900">
+                <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
+                <span>{selectedStructureIds.length} fee {selectedStructureIds.length === 1 ? "structure" : "structures"} selected</span>
+                <span className="text-blue-700 font-mono">({formatNaira(selectedTotalAmount)})</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setError("");
+                    setIsMultiAssignOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-xs transition-colors cursor-pointer shadow-2xs"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM4 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 10.374 21c-2.331 0-4.512-.645-6.374-1.765Z" />
+                  </svg>
+                  <span>Assign Selected</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedStructureIds([])}
+                  className="px-2.5 py-1.5 rounded-lg text-slate-600 hover:bg-blue-100/70 font-semibold text-xs transition-colors cursor-pointer"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Fee Structures Table */}
           <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
             {loadingStructures ? (
@@ -1319,6 +1894,15 @@ export default function FeesManagementPage() {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50/80 border-b border-slate-100 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      <th className="w-10 px-4 py-3.5 text-center">
+                        <input
+                          type="checkbox"
+                          checked={structures.length > 0 && selectedStructureIds.length === structures.length}
+                          onChange={toggleSelectAllStructures}
+                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4 cursor-pointer"
+                          aria-label="Select all structures"
+                        />
+                      </th>
                       <th className="px-6 py-3.5">Structure Name</th>
                       <th className="px-6 py-3.5">Type</th>
                       <th className="px-6 py-3.5">Amount (₦)</th>
@@ -1329,49 +1913,280 @@ export default function FeesManagementPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-sm">
-                    {structures.map((st) => (
-                      <tr key={st.id} className="hover:bg-slate-50/60 transition-colors">
-                        <td className="px-6 py-4 font-bold text-slate-900">
-                          {st.name}
+                    {structures.map((st) => {
+                      const isSelected = selectedStructureIds.includes(st.id);
+                      return (
+                        <tr
+                          key={st.id}
+                          className={`transition-colors ${
+                            isSelected ? "bg-blue-50/40 hover:bg-blue-50/70" : "hover:bg-slate-50/60"
+                          }`}
+                        >
+                          <td className="w-10 px-4 py-4 text-center">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleStructureSelection(st.id)}
+                              className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4 cursor-pointer"
+                              aria-label={`Select ${st.name}`}
+                            />
+                          </td>
+                          <td className="px-6 py-4 font-bold text-slate-900">
+                            {st.name}
+                          </td>
+                          <td className="px-6 py-4">
+                            <span
+                              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                                st.type === "FEEDING"
+                                  ? "bg-amber-50 text-amber-800 border border-amber-200"
+                                  : "bg-slate-100 text-slate-700 border border-slate-200"
+                              }`}
+                            >
+                              {st.type}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 font-extrabold text-slate-900 font-mono">
+                            {formatAmount(st.amount)}
+                          </td>
+                          <td className="px-6 py-4 text-xs text-slate-600">
+                            {st.academicYear} {st.term ? `(${st.term})` : ""}
+                          </td>
+                          <td className="px-6 py-4 text-xs text-slate-600 font-mono">
+                            {new Date(st.dueDate).toLocaleDateString()}
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700">
+                              {st._count?.fees ?? 0} Students
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setError("");
+                                  setAssignModalError("");
+                                  setAssigningStructure(st);
+                                  setSelectedStudentId("");
+                                  setSelectedClassId("");
+                                  setSelectedAdmissionLevel("");
+                                }}
+                                className="inline-flex items-center justify-center gap-1 w-28 h-8 rounded-lg bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-xs transition-colors cursor-pointer shadow-2xs"
+                              >
+                                <span>Assign fee</span>
+                              </button>
+
+                              <div className="relative inline-block text-left" data-row-menu="true">
+                                <button
+                                  type="button"
+                                  aria-label="More actions"
+                                  aria-expanded={openMenuId === `structure-${st.id}`}
+                                  onClick={() => setOpenMenuId(openMenuId === `structure-${st.id}` ? null : `structure-${st.id}`)}
+                                  className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-slate-300"
+                                >
+                                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                    <circle cx="12" cy="5" r="1.75" />
+                                    <circle cx="12" cy="12" r="1.75" />
+                                    <circle cx="12" cy="19" r="1.75" />
+                                  </svg>
+                                </button>
+
+                                {openMenuId === `structure-${st.id}` && (
+                                  <div className="absolute right-0 top-full mt-1 w-36 rounded-xl bg-white border border-slate-200/90 shadow-lg py-1 z-40 animate-in fade-in zoom-in-95 duration-100">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOpenMenuId(null);
+                                        handleOpenEditStructure(st);
+                                      }}
+                                      className="w-full text-left px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-slate-900 flex items-center gap-2 transition-colors cursor-pointer"
+                                    >
+                                      <svg className="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" />
+                                      </svg>
+                                      <span>Edit</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOpenMenuId(null);
+                                        handleDeleteStructureClick(st);
+                                      }}
+                                      className="w-full text-left px-3.5 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 flex items-center gap-2 transition-colors cursor-pointer"
+                                    >
+                                      <svg className="w-3.5 h-3.5 text-rose-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                                      </svg>
+                                      <span>Delete</span>
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* TAB 3: FEE PACKAGES TAB                                             */}
+      {/* =================================================================== */}
+      {activeTab === "packages" && (
+        <div className="space-y-4">
+          {/* Fee Packages Filter Bar */}
+          <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Session Filter */}
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Session:</label>
+                <select
+                  value={packageSessionFilter}
+                  onChange={(e) => handlePackageSessionChange(e.target.value)}
+                  className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
+                >
+                  <option value="ALL">All Sessions</option>
+                  {availablePackageSessions.map((session) => (
+                    <option key={session} value={session}>
+                      {session}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Term Filter (Cascading) */}
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Term:</label>
+                <select
+                  value={packageTermFilter}
+                  onChange={(e) => handlePackageTermChange(e.target.value)}
+                  className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
+                >
+                  <option value="ALL">All Terms</option>
+                  {availablePackageTerms.map((term) => (
+                    <option key={term} value={term}>
+                      {term}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Reset Filters */}
+            {hasActivePackageFilters && (
+              <button
+                type="button"
+                onClick={handleResetPackageFilters}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+                </svg>
+                <span>Reset Filters</span>
+              </button>
+            )}
+          </div>
+
+          {/* Fee Packages Table */}
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+            {loadingPackages ? (
+              <div className="p-8 space-y-4">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-12 bg-slate-100 animate-pulse rounded-xl" />
+                ))}
+              </div>
+            ) : packages.length === 0 ? (
+              <div className="p-12 text-center">
+                <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mx-auto mb-3">
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
+                  </svg>
+                </div>
+                <p className="text-sm font-semibold text-slate-800">
+                  {hasActivePackageFilters ? "No fee packages match the selected filters" : "No fee packages created yet"}
+                </p>
+                <p className="text-xs text-slate-500 mt-1">
+                  {hasActivePackageFilters
+                    ? "Try adjusting or clearing your session and term filters."
+                    : "Create reusable fee bundles like \"Full Term Package\" (Tuition + Transport + Feeding) to assign in one click."}
+                </p>
+                {hasActivePackageFilters && (
+                  <button
+                    type="button"
+                    onClick={handleResetPackageFilters}
+                    className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+                    </svg>
+                    <span>Reset Filters</span>
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50/80 border-b border-slate-100 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      <th className="px-6 py-3.5">Package Name</th>
+                      <th className="px-6 py-3.5">Session / Term</th>
+                      <th className="px-6 py-3.5">Bundled Structures</th>
+                      <th className="px-6 py-3.5">Total Value (₦)</th>
+                      <th className="px-6 py-3.5 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-sm">
+                    {packages.map((pkg) => (
+                      <tr key={pkg.id} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="px-6 py-4">
+                          <div className="font-bold text-slate-900">{pkg.name}</div>
+                          {pkg.description && (
+                            <div className="text-xs text-slate-500 mt-0.5 max-w-xs truncate">{pkg.description}</div>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 text-xs font-semibold text-slate-700">
+                          {pkg.academicYear} {pkg.term ? `(${pkg.term})` : ""}
                         </td>
                         <td className="px-6 py-4">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-                            {st.type}
-                          </span>
+                          <div className="flex flex-wrap gap-1.5 max-w-md">
+                            {pkg.items.map((it) => (
+                              <span
+                                key={it.id}
+                                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-800 border border-slate-200"
+                              >
+                                <span>{it.feeStructure?.name || "Fee"}</span>
+                                {it.feeStructure?.amount && (
+                                  <span className="font-mono text-slate-500 font-bold">₦{formatAmount(it.feeStructure.amount)}</span>
+                                )}
+                              </span>
+                            ))}
+                          </div>
                         </td>
-                        <td className="px-6 py-4 font-extrabold text-slate-900 font-mono">
-                          {formatAmount(st.amount)}
-                        </td>
-                        <td className="px-6 py-4 text-xs text-slate-600">
-                          {st.academicYear} {st.term ? `(${st.term})` : ""}
-                        </td>
-                        <td className="px-6 py-4 text-xs text-slate-600 font-mono">
-                          {new Date(st.dueDate).toLocaleDateString()}
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700">
-                            {st._count?.fees ?? 0} Students
-                          </span>
+                        <td className="px-6 py-4 font-extrabold text-slate-900 font-mono text-base">
+                          {formatNaira(pkg.totalAmount)}
                         </td>
                         <td className="px-6 py-4 text-right">
                           <div className="flex items-center justify-end gap-1.5">
                             <button
                               type="button"
-                              onClick={() => {
-                                setError("");
-                                setAssigningStructure(st);
-                              }}
-                              className="inline-flex items-center justify-center gap-1 w-28 h-8 rounded-lg bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-xs transition-colors cursor-pointer shadow-2xs"
+                              onClick={() => handleOpenAssignPackage(pkg)}
+                              className="inline-flex items-center justify-center gap-1 w-32 h-8 rounded-lg bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-xs transition-colors cursor-pointer shadow-2xs"
                             >
-                              <span>Assign fee</span>
+                              <span>Assign package</span>
                             </button>
 
                             <div className="relative inline-block text-left" data-row-menu="true">
                               <button
                                 type="button"
                                 aria-label="More actions"
-                                aria-expanded={openMenuId === `structure-${st.id}`}
-                                onClick={() => setOpenMenuId(openMenuId === `structure-${st.id}` ? null : `structure-${st.id}`)}
+                                aria-expanded={openMenuId === `package-${pkg.id}`}
+                                onClick={() => setOpenMenuId(openMenuId === `package-${pkg.id}` ? null : `package-${pkg.id}`)}
                                 className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-slate-300"
                               >
                                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
@@ -1381,13 +2196,13 @@ export default function FeesManagementPage() {
                                 </svg>
                               </button>
 
-                              {openMenuId === `structure-${st.id}` && (
+                              {openMenuId === `package-${pkg.id}` && (
                                 <div className="absolute right-0 top-full mt-1 w-36 rounded-xl bg-white border border-slate-200/90 shadow-lg py-1 z-40 animate-in fade-in zoom-in-95 duration-100">
                                   <button
                                     type="button"
                                     onClick={() => {
                                       setOpenMenuId(null);
-                                      handleOpenEditStructure(st);
+                                      handleOpenEditPackage(pkg);
                                     }}
                                     className="w-full text-left px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-slate-900 flex items-center gap-2 transition-colors cursor-pointer"
                                   >
@@ -1400,7 +2215,7 @@ export default function FeesManagementPage() {
                                     type="button"
                                     onClick={() => {
                                       setOpenMenuId(null);
-                                      handleDeleteStructureClick(st);
+                                      handleDeletePackageClick(pkg);
                                     }}
                                     className="w-full text-left px-3.5 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 flex items-center gap-2 transition-colors cursor-pointer"
                                   >
@@ -1847,6 +2662,7 @@ export default function FeesManagementPage() {
                     <option value="UNIFORM">UNIFORM</option>
                     <option value="EXAM">EXAM</option>
                     <option value="MISCELLANEOUS">MISCELLANEOUS</option>
+                    <option value="FEEDING">FEEDING</option>
                   </select>
                 </div>
 
@@ -1989,6 +2805,7 @@ export default function FeesManagementPage() {
                     <option value="UNIFORM">UNIFORM</option>
                     <option value="EXAM">EXAM</option>
                     <option value="MISCELLANEOUS">MISCELLANEOUS</option>
+                    <option value="FEEDING">FEEDING</option>
                   </select>
                 </div>
 
@@ -2134,7 +2951,10 @@ export default function FeesManagementPage() {
                 <p className="text-xs text-slate-500">{assigningStructure.name} — {formatNaira(assigningStructure.amount)}</p>
               </div>
               <button
-                onClick={() => setAssigningStructure(null)}
+                onClick={() => {
+                  setAssigningStructure(null);
+                  setAssignModalError("");
+                }}
                 className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -2144,6 +2964,16 @@ export default function FeesManagementPage() {
             </div>
 
             <form onSubmit={handleAssignFeeSubmit} className="p-6 space-y-5">
+              {/* Modal Error Alert Banner */}
+              {assignModalError && (
+                <div className="p-3 bg-rose-50 border border-rose-200/80 rounded-xl flex items-start gap-2.5 text-xs text-rose-700 font-medium animate-in fade-in duration-150">
+                  <svg className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                  </svg>
+                  <span className="flex-1">{assignModalError}</span>
+                </div>
+              )}
+
               {/* Option Selector Toggle */}
               <div className="space-y-2">
                 <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
@@ -2152,7 +2982,10 @@ export default function FeesManagementPage() {
                 <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 rounded-xl text-xs font-bold">
                   <button
                     type="button"
-                    onClick={() => setAssignMode("single")}
+                    onClick={() => {
+                      setAssignMode("single");
+                      setAssignModalError("");
+                    }}
                     className={`py-2 rounded-lg transition-all ${
                       assignMode === "single" ? "bg-white text-slate-900 shadow-2xs" : "text-slate-600"
                     }`}
@@ -2161,7 +2994,10 @@ export default function FeesManagementPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setAssignMode("class")}
+                    onClick={() => {
+                      setAssignMode("class");
+                      setAssignModalError("");
+                    }}
                     className={`py-2 rounded-lg transition-all ${
                       assignMode === "class" ? "bg-white text-slate-900 shadow-2xs" : "text-slate-600"
                     }`}
@@ -2170,7 +3006,10 @@ export default function FeesManagementPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setAssignMode("admissionLevel")}
+                    onClick={() => {
+                      setAssignMode("admissionLevel");
+                      setAssignModalError("");
+                    }}
                     className={`py-2 rounded-lg transition-all ${
                       assignMode === "admissionLevel" ? "bg-white text-slate-900 shadow-2xs" : "text-slate-600"
                     }`}
@@ -2188,7 +3027,10 @@ export default function FeesManagementPage() {
                   </label>
                   <select
                     value={selectedStudentId}
-                    onChange={(e) => setSelectedStudentId(e.target.value)}
+                    onChange={(e) => {
+                      setSelectedStudentId(e.target.value);
+                      setAssignModalError("");
+                    }}
                     className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
                   >
                     <option value="">Select a student...</option>
@@ -2209,7 +3051,10 @@ export default function FeesManagementPage() {
                   </label>
                   <select
                     value={selectedClassId}
-                    onChange={(e) => setSelectedClassId(e.target.value)}
+                    onChange={(e) => {
+                      setSelectedClassId(e.target.value);
+                      setAssignModalError("");
+                    }}
                     className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
                   >
                     <option value="">Select a class...</option>
@@ -2230,7 +3075,10 @@ export default function FeesManagementPage() {
                   </label>
                   <select
                     value={selectedAdmissionLevel}
-                    onChange={(e) => setSelectedAdmissionLevel(e.target.value)}
+                    onChange={(e) => {
+                      setSelectedAdmissionLevel(e.target.value);
+                      setAssignModalError("");
+                    }}
                     className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
                   >
                     <option value="">Select an admission level...</option>
@@ -2247,7 +3095,10 @@ export default function FeesManagementPage() {
               <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setAssigningStructure(null)}
+                  onClick={() => {
+                    setAssigningStructure(null);
+                    setAssignModalError("");
+                  }}
                   className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 font-semibold text-xs transition-colors cursor-pointer"
                 >
                   Cancel
@@ -2697,6 +3548,743 @@ export default function FeesManagementPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* MODAL 5: MULTI-ASSIGN FEES MODAL                                    */}
+      {/* =================================================================== */}
+      {isMultiAssignOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-150">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div>
+                <h3 className="font-bold text-slate-900 text-base">Assign Selected Fee Structures</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Assign {selectedStructureIds.length} fee structures at once to a student, class, or admission level.
+                </p>
+              </div>
+              <button
+                onClick={() => setIsMultiAssignOpen(false)}
+                className="text-slate-400 hover:text-slate-600 transition-colors p-1"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <form onSubmit={handleMultiAssignSubmit} className="p-6 space-y-4">
+              {/* Selected Structures Summary Box */}
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                  <span>Selected Structures ({selectedStructures.length})</span>
+                  <span className="text-blue-700 font-mono font-extrabold text-sm">{formatNaira(selectedTotalAmount)}</span>
+                </div>
+                <div className="max-h-36 overflow-y-auto divide-y divide-slate-100 text-xs text-slate-600">
+                  {selectedStructures.map((s) => (
+                    <div key={s.id} className="py-1.5 flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-medium text-slate-800">{s.name}</span>
+                        <span className="text-[10px] text-slate-400">({s.academicYear})</span>
+                      </div>
+                      <span className="font-mono font-semibold text-slate-700">{formatNaira(s.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Assignment Target Mode */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                  Assign To *
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setMultiAssignMode("single")}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                      multiAssignMode === "single"
+                        ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    Single Student
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMultiAssignMode("class")}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                      multiAssignMode === "class"
+                        ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    Entire Class
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMultiAssignMode("admissionLevel")}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                      multiAssignMode === "admissionLevel"
+                        ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    Admission Level
+                  </button>
+                </div>
+              </div>
+
+              {/* Dynamic Target Selection */}
+              {multiAssignMode === "single" && (
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                    Select Student *
+                  </label>
+                  <select
+                    required
+                    value={multiAssignStudentId}
+                    onChange={(e) => setMultiAssignStudentId(e.target.value)}
+                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
+                  >
+                    <option value="">-- Choose Student --</option>
+                    {students.map((st) => (
+                      <option key={st.id} value={st.id}>
+                        {st.firstName} {st.lastName} ({st.studentId}) {st.admissionLevel ? `• ${st.admissionLevel}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {multiAssignMode === "class" && (
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                    Select Class *
+                  </label>
+                  <select
+                    required
+                    value={multiAssignClassId}
+                    onChange={(e) => setMultiAssignClassId(e.target.value)}
+                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
+                  >
+                    <option value="">-- Choose Class --</option>
+                    {classes.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.academicYear})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {multiAssignMode === "admissionLevel" && (
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                    Select Admission Level *
+                  </label>
+                  <select
+                    required
+                    value={multiAssignAdmissionLevel}
+                    onChange={(e) => setMultiAssignAdmissionLevel(e.target.value)}
+                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
+                  >
+                    <option value="">-- Choose Level --</option>
+                    {availableLevels.map((lvl) => (
+                      <option key={lvl} value={lvl}>
+                        {lvl}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsMultiAssignOpen(false)}
+                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 font-semibold text-xs transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingMultiAssign}
+                  className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {submittingMultiAssign && (
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  )}
+                  <span>Assign Selected Fees</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* MODAL 6: CREATE FEE PACKAGE MODAL                                   */}
+      {/* =================================================================== */}
+      {isCreatePackageOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-150">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div>
+                <h3 className="font-bold text-slate-900 text-base">Create Fee Package</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Bundle multiple fee structures into a reusable single-click package.
+                </p>
+              </div>
+              <button
+                onClick={() => setIsCreatePackageOpen(false)}
+                className="text-slate-400 hover:text-slate-600 transition-colors p-1"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <form onSubmit={handleCreatePackageSubmit} className="p-6 space-y-4">
+              {/* Package Name */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                  Package Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Full Term Package 2025/2026"
+                  value={createPackageForm.name}
+                  onChange={(e) => setCreatePackageForm({ ...createPackageForm, name: e.target.value })}
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                />
+              </div>
+
+              {/* Description */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                  Description (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Includes Tuition, Transport, and Feeding fees"
+                  value={createPackageForm.description}
+                  onChange={(e) => setCreatePackageForm({ ...createPackageForm, description: e.target.value })}
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                />
+              </div>
+
+              {/* Academic Year & Term */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                    Academic Year *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="2025/2026"
+                    value={createPackageForm.academicYear}
+                    onChange={(e) => setCreatePackageForm({ ...createPackageForm, academicYear: e.target.value })}
+                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                    Term (Optional)
+                  </label>
+                  <select
+                    value={createPackageForm.term}
+                    onChange={(e) => setCreatePackageForm({ ...createPackageForm, term: e.target.value })}
+                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                  >
+                    <option value="">All Terms / Unspecified</option>
+                    <option value="First Term">First Term</option>
+                    <option value="Second Term">Second Term</option>
+                    <option value="Third Term">Third Term</option>
+                    <option value="Term 1">Term 1</option>
+                    <option value="Term 2">Term 2</option>
+                    <option value="Term 3">Term 3</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Fee Structures Selection Checklist */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                    Select Fee Structures to Bundle *
+                  </label>
+                  <span className="text-xs font-mono font-bold text-blue-700">
+                    Total: {formatNaira(
+                      allStructuresForFilters
+                        .filter((s) => createPackageForm.feeStructureIds.includes(s.id))
+                        .reduce((sum, s) => sum + (typeof s.amount === "number" ? s.amount : parseFloat(s.amount as string) || 0), 0)
+                    )}
+                  </span>
+                </div>
+
+                <div className="border border-slate-200 rounded-xl max-h-48 overflow-y-auto p-2 divide-y divide-slate-100 bg-slate-50/50">
+                  {allStructuresForFilters.length === 0 ? (
+                    <div className="p-4 text-center text-xs text-slate-400">
+                      No fee structures available. Create structures first.
+                    </div>
+                  ) : (
+                    allStructuresForFilters
+                      .filter(
+                        (s) =>
+                          s.academicYear === createPackageForm.academicYear &&
+                          (!createPackageForm.term || !s.term || s.term === createPackageForm.term)
+                      )
+                      .map((st) => {
+                        const checked = createPackageForm.feeStructureIds.includes(st.id);
+                        return (
+                          <label
+                            key={st.id}
+                            className="py-2 px-2 flex items-center justify-between text-xs cursor-pointer hover:bg-slate-100/70 rounded-lg transition-colors"
+                          >
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => {
+                                  setCreatePackageForm((prev) => ({
+                                    ...prev,
+                                    feeStructureIds: checked
+                                      ? prev.feeStructureIds.filter((id) => id !== st.id)
+                                      : [...prev.feeStructureIds, st.id],
+                                  }));
+                                }}
+                                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4"
+                              />
+                              <div>
+                                <span className="font-semibold text-slate-900">{st.name}</span>
+                                <span className="text-[10px] text-slate-400 ml-1.5">({st.type})</span>
+                              </div>
+                            </div>
+                            <span className="font-mono font-bold text-slate-800">{formatNaira(st.amount)}</span>
+                          </label>
+                        );
+                      })
+                  )}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsCreatePackageOpen(false)}
+                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 font-semibold text-xs transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingCreatePackage}
+                  className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {submittingCreatePackage && (
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  )}
+                  <span>Create Package</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* MODAL 7: EDIT FEE PACKAGE MODAL                                     */}
+      {/* =================================================================== */}
+      {editingPackage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-150">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div>
+                <h3 className="font-bold text-slate-900 text-base">Edit Fee Package</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Update package name, session, term, or bundled fee structures.
+                </p>
+              </div>
+              <button
+                onClick={() => setEditingPackage(null)}
+                className="text-slate-400 hover:text-slate-600 transition-colors p-1"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <form onSubmit={handleEditPackageSubmit} className="p-6 space-y-4">
+              {/* Package Name */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                  Package Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editPackageForm.name}
+                  onChange={(e) => setEditPackageForm({ ...editPackageForm, name: e.target.value })}
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                />
+              </div>
+
+              {/* Description */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                  Description (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={editPackageForm.description}
+                  onChange={(e) => setEditPackageForm({ ...editPackageForm, description: e.target.value })}
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                />
+              </div>
+
+              {/* Academic Year & Term */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                    Academic Year *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editPackageForm.academicYear}
+                    onChange={(e) => setEditPackageForm({ ...editPackageForm, academicYear: e.target.value })}
+                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                    Term (Optional)
+                  </label>
+                  <select
+                    value={editPackageForm.term}
+                    onChange={(e) => setEditPackageForm({ ...editPackageForm, term: e.target.value })}
+                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                  >
+                    <option value="">All Terms / Unspecified</option>
+                    <option value="First Term">First Term</option>
+                    <option value="Second Term">Second Term</option>
+                    <option value="Third Term">Third Term</option>
+                    <option value="Term 1">Term 1</option>
+                    <option value="Term 2">Term 2</option>
+                    <option value="Term 3">Term 3</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Fee Structures Selection Checklist */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                    Bundled Fee Structures *
+                  </label>
+                  <span className="text-xs font-mono font-bold text-blue-700">
+                    Total: {formatNaira(
+                      allStructuresForFilters
+                        .filter((s) => editPackageForm.feeStructureIds.includes(s.id))
+                        .reduce((sum, s) => sum + (typeof s.amount === "number" ? s.amount : parseFloat(s.amount as string) || 0), 0)
+                    )}
+                  </span>
+                </div>
+
+                <div className="border border-slate-200 rounded-xl max-h-48 overflow-y-auto p-2 divide-y divide-slate-100 bg-slate-50/50">
+                  {allStructuresForFilters
+                    .filter(
+                      (s) =>
+                        s.academicYear === editPackageForm.academicYear &&
+                        (!editPackageForm.term || !s.term || s.term === editPackageForm.term)
+                    )
+                    .map((st) => {
+                      const checked = editPackageForm.feeStructureIds.includes(st.id);
+                      return (
+                        <label
+                          key={st.id}
+                          className="py-2 px-2 flex items-center justify-between text-xs cursor-pointer hover:bg-slate-100/70 rounded-lg transition-colors"
+                        >
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                setEditPackageForm((prev) => ({
+                                  ...prev,
+                                  feeStructureIds: checked
+                                    ? prev.feeStructureIds.filter((id) => id !== st.id)
+                                    : [...prev.feeStructureIds, st.id],
+                                }));
+                              }}
+                              className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4"
+                            />
+                            <div>
+                              <span className="font-semibold text-slate-900">{st.name}</span>
+                              <span className="text-[10px] text-slate-400 ml-1.5">({st.type})</span>
+                            </div>
+                          </div>
+                          <span className="font-mono font-bold text-slate-800">{formatNaira(st.amount)}</span>
+                        </label>
+                      );
+                    })}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingPackage(null)}
+                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 font-semibold text-xs transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingEditPackage}
+                  className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {submittingEditPackage && (
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  )}
+                  <span>Save Changes</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* MODAL 8: DELETE FEE PACKAGE CONFIRMATION                            */}
+      {/* =================================================================== */}
+      {deletingPackage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-150 p-6 space-y-4">
+            <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto">
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+              </svg>
+            </div>
+
+            <div className="text-center space-y-1">
+              <h3 className="font-bold text-slate-900 text-base">Delete Fee Package</h3>
+              <p className="text-xs text-slate-500">
+                Are you sure you want to delete <span className="font-bold text-slate-800">"{deletingPackage.name}"</span>?
+              </p>
+              <p className="text-[11px] text-slate-400 mt-2 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                Note: Deleting this package removes the bundle definition only. Underlying fee structures and student fee records already generated will remain completely intact.
+              </p>
+            </div>
+
+            <div className="pt-2 flex items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => setDeletingPackage(null)}
+                className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 font-semibold text-xs transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeletePackageConfirm}
+                disabled={submittingDeletePackage}
+                className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {submittingDeletePackage && (
+                  <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                )}
+                <span>Delete Package</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* MODAL 9: ASSIGN FEE PACKAGE MODAL                                   */}
+      {/* =================================================================== */}
+      {assigningPackage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-150">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div>
+                <h3 className="font-bold text-slate-900 text-base">Assign Fee Package</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Assign all bundled fee structures in <span className="font-bold text-slate-800">"{assigningPackage.name}"</span>.
+                </p>
+              </div>
+              <button
+                onClick={() => setAssigningPackage(null)}
+                className="text-slate-400 hover:text-slate-600 transition-colors p-1"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <form onSubmit={handleAssignPackageSubmit} className="p-6 space-y-4">
+              {/* Package Summary Box */}
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                  <span>Bundled Fees ({assigningPackage.items.length})</span>
+                  <span className="text-blue-700 font-mono font-extrabold text-sm">{formatNaira(assigningPackage.totalAmount)}</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {assigningPackage.items.map((it) => (
+                    <span
+                      key={it.id}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-white text-slate-800 border border-slate-200 shadow-2xs"
+                    >
+                      <span>{it.feeStructure?.name || "Fee"}</span>
+                      {it.feeStructure?.amount && (
+                        <span className="font-mono text-blue-600 font-bold">₦{formatAmount(it.feeStructure.amount)}</span>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Assignment Target Mode */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                  Assign To *
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAssignPackageMode("single")}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                      assignPackageMode === "single"
+                        ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    Single Student
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAssignPackageMode("class")}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                      assignPackageMode === "class"
+                        ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    Entire Class
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAssignPackageMode("admissionLevel")}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                      assignPackageMode === "admissionLevel"
+                        ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    Admission Level
+                  </button>
+                </div>
+              </div>
+
+              {/* Dynamic Target Selection */}
+              {assignPackageMode === "single" && (
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                    Select Student *
+                  </label>
+                  <select
+                    required
+                    value={assignPackageStudentId}
+                    onChange={(e) => setAssignPackageStudentId(e.target.value)}
+                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
+                  >
+                    <option value="">-- Choose Student --</option>
+                    {students.map((st) => (
+                      <option key={st.id} value={st.id}>
+                        {st.firstName} {st.lastName} ({st.studentId}) {st.admissionLevel ? `• ${st.admissionLevel}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {assignPackageMode === "class" && (
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                    Select Class *
+                  </label>
+                  <select
+                    required
+                    value={assignPackageClassId}
+                    onChange={(e) => setAssignPackageClassId(e.target.value)}
+                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
+                  >
+                    <option value="">-- Choose Class --</option>
+                    {classes.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.academicYear})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {assignPackageMode === "admissionLevel" && (
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                    Select Admission Level *
+                  </label>
+                  <select
+                    required
+                    value={assignPackageAdmissionLevel}
+                    onChange={(e) => setAssignPackageAdmissionLevel(e.target.value)}
+                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
+                  >
+                    <option value="">-- Choose Level --</option>
+                    {availableLevels.map((lvl) => (
+                      <option key={lvl} value={lvl}>
+                        {lvl}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setAssigningPackage(null)}
+                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 font-semibold text-xs transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingAssignPackage}
+                  className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {submittingAssignPackage && (
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  )}
+                  <span>Assign Package</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
