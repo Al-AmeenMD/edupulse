@@ -295,6 +295,7 @@ model Payment {
   fee           Fee      @relation(fields: [feeId], references: [id])
 
   @@unique([schoolId, receiptNumber])
+  @@index([schoolId, paidAt])
   @@map("payments")
 }
 
@@ -312,6 +313,8 @@ model Expense {
 
   school      School    @relation(fields: [schoolId], references: [id])
 
+  @@index([schoolId, expenseDate])
+  @@index([schoolId, deletedAt])
   @@map("expenses")
 }
 
@@ -416,6 +419,7 @@ model BudgetAuditLog {
 
   budget         Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
 
+  @@index([budgetId, changedAt])
   @@map("budget_audit_logs")
 }
 
