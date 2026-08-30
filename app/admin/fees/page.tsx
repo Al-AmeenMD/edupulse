@@ -45,6 +45,27 @@ interface FeePackageItem {
   }>;
 }
 
+interface PackageBalanceComponent {
+  feeId: string | null;
+  feeStructureId: string;
+  name: string;
+  type: FeeType;
+  amountDue: string;
+  amountPaid: string;
+  remainingBalance: string;
+  status: string;
+  isAssigned: boolean;
+}
+
+interface PackageBalanceData {
+  package: { id: string; name: string; academicYear: string; term?: string | null; totalAmount: string };
+  student: { id: string; studentId: string; firstName: string; lastName: string; admissionLevel?: string | null; className?: string | null };
+  components: PackageBalanceComponent[];
+  totalDue: string;
+  totalPaid: string;
+  totalRemaining: string;
+}
+
 interface StudentItem {
   id: string;
   studentId: string;
@@ -214,6 +235,21 @@ export default function FeesManagementPage() {
   const [assignPackageClassId, setAssignPackageClassId] = useState("");
   const [assignPackageAdmissionLevel, setAssignPackageAdmissionLevel] = useState("");
   const [submittingAssignPackage, setSubmittingAssignPackage] = useState(false);
+
+  // Record Package Payment State
+  const [payingPackage, setPayingPackage] = useState<FeePackageItem | null>(null);
+  const [payPackageStudentId, setPayPackageStudentId] = useState("");
+  const [loadingPackageBalances, setLoadingPackageBalances] = useState(false);
+  const [packageBalanceData, setPackageBalanceData] = useState<PackageBalanceData | null>(null);
+  const [packagePaymentAmount, setPackagePaymentAmount] = useState("");
+  const [packagePaymentMethod, setPackagePaymentMethod] = useState("cash");
+  const [packagePaymentReference, setPackagePaymentReference] = useState("");
+  const [packagePaymentNote, setPackagePaymentNote] = useState("");
+  const [customAllocations, setCustomAllocations] = useState<Record<string, string>>({});
+  const [submittingPackagePayment, setSubmittingPackagePayment] = useState(false);
+  const [packagePaymentModalError, setPackagePaymentModalError] = useState("");
+  const [downloadingPackagePaymentId, setDownloadingPackagePaymentId] = useState<string | null>(null);
+  const [lastPackagePaymentResult, setLastPackagePaymentResult] = useState<{ id: string; receiptNumber: string } | null>(null);
 
   // Tab 2: Student Fees State & Filters
   const [studentFees, setStudentFees] = useState<StudentFeeItem[]>([]);
@@ -1627,6 +1663,180 @@ export default function FeesManagementPage() {
     }
   }
 
+  // Handle Open Package Payment Modal
+  function handleOpenPayPackageModal(pkg: FeePackageItem) {
+    setError("");
+    setPackagePaymentModalError("");
+    setPayingPackage(pkg);
+    setPayPackageStudentId("");
+    setPackageBalanceData(null);
+    setPackagePaymentAmount("");
+    setPackagePaymentMethod("cash");
+    setPackagePaymentReference("");
+    setPackagePaymentNote("");
+    setCustomAllocations({});
+  }
+
+  // Handle Package Student Selection & Balance Lookup
+  async function handlePackageStudentSelect(studentId: string) {
+    setPayPackageStudentId(studentId);
+    setPackagePaymentModalError("");
+    setPackageBalanceData(null);
+    setCustomAllocations({});
+    if (!studentId || !payingPackage) return;
+
+    try {
+      setLoadingPackageBalances(true);
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) return;
+
+      const res = await fetch(`/api/fees/packages/${payingPackage.id}/students/${studentId}/balance`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to fetch student package fee balances.");
+
+      const balanceInfo = data.data as PackageBalanceData;
+      setPackageBalanceData(balanceInfo);
+      setPackagePaymentAmount(balanceInfo.totalRemaining);
+
+      const initialAlloc: Record<string, string> = {};
+      for (const comp of balanceInfo.components) {
+        if (comp.feeId && parseFloat(comp.remainingBalance) > 0) {
+          initialAlloc[comp.feeId] = comp.remainingBalance;
+        }
+      }
+      setCustomAllocations(initialAlloc);
+    } catch (err: any) {
+      setPackagePaymentModalError(err.message || "Failed to load student package balance.");
+    } finally {
+      setLoadingPackageBalances(false);
+    }
+  }
+
+  // Handle Package Payment Submit
+  async function handlePackagePaymentSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!payingPackage || !payPackageStudentId) return;
+    setPackagePaymentModalError("");
+
+    const totalAmt = parseFloat(packagePaymentAmount);
+    if (isNaN(totalAmt) || totalAmt <= 0) {
+      setPackagePaymentModalError("Please enter a valid payment amount greater than zero.");
+      return;
+    }
+
+    if (!packageBalanceData) {
+      setPackagePaymentModalError("Student fee balances not loaded.");
+      return;
+    }
+
+    const isFullSettlement = totalAmt === parseFloat(packageBalanceData.totalRemaining);
+    let allocationsPayload: Array<{ feeId: string; amount: number }> | undefined = undefined;
+
+    if (!isFullSettlement) {
+      let sum = 0;
+      const allocList: Array<{ feeId: string; amount: number }> = [];
+      for (const comp of packageBalanceData.components) {
+        if (comp.feeId) {
+          const val = parseFloat(customAllocations[comp.feeId] || "0") || 0;
+          if (val < 0) {
+            setPackagePaymentModalError(`Allocation for ${comp.name} cannot be negative.`);
+            return;
+          }
+          if (val > parseFloat(comp.remainingBalance)) {
+            setPackagePaymentModalError(`Allocation for ${comp.name} exceeds remaining balance (₦${formatAmount(comp.remainingBalance)}).`);
+            return;
+          }
+          if (val > 0) {
+            allocList.push({ feeId: comp.feeId, amount: val });
+          }
+          sum += val;
+        }
+      }
+
+      if (Math.abs(sum - totalAmt) > 0.009) {
+        setPackagePaymentModalError(`Sum of component allocations (₦${formatAmount(sum)}) must equal total payment amount (₦${formatAmount(totalAmt)}).`);
+        return;
+      }
+
+      allocationsPayload = allocList;
+    }
+
+    try {
+      setSubmittingPackagePayment(true);
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) return;
+
+      const res = await fetch(`/api/fees/packages/${payingPackage.id}/payments`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          studentId: payPackageStudentId,
+          amount: totalAmt,
+          method: packagePaymentMethod,
+          reference: packagePaymentReference.trim() || undefined,
+          note: packagePaymentNote.trim() || undefined,
+          allocations: allocationsPayload,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to record package payment.");
+
+      const pkgPayment = data.data?.packagePayment;
+      const receiptNumber = pkgPayment?.receiptNumber || "";
+      const paymentId = pkgPayment?.id || "";
+
+      setPayingPackage(null);
+      setLastPackagePaymentResult({ id: paymentId, receiptNumber });
+      setSuccessMessage(`Package payment of ₦${formatAmount(totalAmt)} recorded successfully! (Receipt: ${receiptNumber})`);
+      setTimeout(() => setSuccessMessage(""), 8000);
+      fetchStudentFees();
+    } catch (err: any) {
+      setPackagePaymentModalError(err.message || "An error occurred while recording package payment.");
+    } finally {
+      setSubmittingPackagePayment(false);
+    }
+  }
+
+  // Handle Download Package Receipt PDF
+  async function handleDownloadPackageReceipt(paymentId: string, receiptNumber: string) {
+    try {
+      setDownloadingPackagePaymentId(paymentId);
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) return;
+
+      const res = await fetch(`/api/fees/package-payments/${paymentId}/receipt`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || "Failed to download receipt.");
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `package-receipt-${receiptNumber.replace(/\//g, "-")}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err: any) {
+      setError(err.message || "Failed to download package receipt.");
+      setTimeout(() => setError(""), 4000);
+    } finally {
+      setDownloadingPackagePaymentId(null);
+    }
+  }
+
   // Helper for Status Badge Styling
   function renderStatusBadge(status: FeeStatus) {
     const styles: Record<FeeStatus, string> = {
@@ -1719,8 +1929,33 @@ export default function FeesManagementPage() {
 
       {successMessage && (
         <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm font-medium flex items-center justify-between gap-3">
-          <span>{successMessage}</span>
-          <button onClick={() => setSuccessMessage("")} className="text-emerald-700 hover:text-emerald-900 font-bold text-xs">
+          <div className="flex items-center gap-3">
+            <span>{successMessage}</span>
+            {lastPackagePaymentResult && (
+              <button
+                type="button"
+                onClick={() => handleDownloadPackageReceipt(lastPackagePaymentResult.id, lastPackagePaymentResult.receiptNumber)}
+                disabled={downloadingPackagePaymentId === lastPackagePaymentResult.id}
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs transition-colors cursor-pointer shadow-2xs"
+              >
+                {downloadingPackagePaymentId === lastPackagePaymentResult.id ? (
+                  <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                  </svg>
+                )}
+                <span>Download Package Receipt (PDF)</span>
+              </button>
+            )}
+          </div>
+          <button
+            onClick={() => {
+              setSuccessMessage("");
+              setLastPackagePaymentResult(null);
+            }}
+            className="text-emerald-700 hover:text-emerald-900 font-bold text-xs cursor-pointer"
+          >
             Dismiss
           </button>
         </div>
@@ -4288,6 +4523,274 @@ export default function FeesManagementPage() {
           </div>
         </div>
       )}
+
+      {/* =================================================================== */}
+      {/* MODAL 10: RECORD PACKAGE PAYMENT MODAL                              */}
+      {/* =================================================================== */}
+      {payingPackage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-150">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div>
+                <h3 className="font-bold text-slate-900 text-base">Record Package Payment</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Package: <span className="font-bold text-slate-800">"{payingPackage.name}"</span> ({payingPackage.academicYear} {payingPackage.term ? "• " + payingPackage.term : ""})
+                </p>
+              </div>
+              <button
+                onClick={() => setPayingPackage(null)}
+                className="text-slate-400 hover:text-slate-600 transition-colors p-1"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <form onSubmit={handlePackagePaymentSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+              {/* Modal Inline Error */}
+              {packagePaymentModalError && (
+                <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center justify-between gap-2">
+                  <span>{packagePaymentModalError}</span>
+                  <button type="button" onClick={() => setPackagePaymentModalError("")} className="text-rose-600 font-bold text-xs hover:underline">
+                    Dismiss
+                  </button>
+                </div>
+              )}
+
+              {/* Student Selector */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                  Select Student *
+                </label>
+                <select
+                  required
+                  value={payPackageStudentId}
+                  onChange={(e) => handlePackageStudentSelect(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
+                >
+                  <option value="">-- Choose Student Assigned to this Package --</option>
+                  {students.map((st) => (
+                    <option key={st.id} value={st.id}>
+                      {st.firstName} {st.lastName} ({st.studentId}) {st.admissionLevel ? "• " + st.admissionLevel : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {loadingPackageBalances && (
+                <div className="py-8 text-center text-slate-400 text-xs">
+                  <span className="inline-block w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mb-2" />
+                  <p>Loading student package balances...</p>
+                </div>
+              )}
+
+              {packageBalanceData && (
+                <div className="space-y-4">
+                  {/* Balance Summary Cards */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                      <span className="text-[10px] uppercase font-bold text-slate-500 block">Total Due</span>
+                      <span className="text-sm font-extrabold text-slate-900 font-mono">
+                        ₦{formatAmount(packageBalanceData.totalDue)}
+                      </span>
+                    </div>
+                    <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                      <span className="text-[10px] uppercase font-bold text-emerald-700 block">Total Paid</span>
+                      <span className="text-sm font-extrabold text-emerald-700 font-mono">
+                        ₦{formatAmount(packageBalanceData.totalPaid)}
+                      </span>
+                    </div>
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                      <span className="text-[10px] uppercase font-bold text-blue-700 block">Total Remaining</span>
+                      <span className="text-sm font-extrabold text-blue-700 font-mono">
+                        ₦{formatAmount(packageBalanceData.totalRemaining)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Payment Inputs */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                          Payment Amount (₦) *
+                        </label>
+                        {parseFloat(packageBalanceData.totalRemaining) > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPackagePaymentAmount(packageBalanceData.totalRemaining);
+                              const fullAlloc: Record<string, string> = {};
+                              for (const comp of packageBalanceData.components) {
+                                if (comp.feeId && parseFloat(comp.remainingBalance) > 0) {
+                                  fullAlloc[comp.feeId] = comp.remainingBalance;
+                                }
+                              }
+                              setCustomAllocations(fullAlloc);
+                            }}
+                            className="text-[11px] text-blue-600 hover:text-blue-800 font-semibold cursor-pointer"
+                          >
+                            Pay Full Balance (₦{formatAmount(packageBalanceData.totalRemaining)})
+                          </button>
+                        )}
+                      </div>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        required
+                        value={packagePaymentAmount}
+                        onChange={(e) => setPackagePaymentAmount(e.target.value)}
+                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                        Payment Method *
+                      </label>
+                      <select
+                        value={packagePaymentMethod}
+                        onChange={(e) => setPackagePaymentMethod(e.target.value)}
+                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
+                      >
+                        <option value="cash">Cash</option>
+                        <option value="bank_transfer">Bank Transfer</option>
+                        <option value="card">Debit / Credit Card</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                        Reference / Teller # (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. TRF-928471"
+                        value={packagePaymentReference}
+                        onChange={(e) => setPackagePaymentReference(e.target.value)}
+                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                        Payment Note (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Paid by parent at admin desk"
+                        value={packagePaymentNote}
+                        onChange={(e) => setPackagePaymentNote(e.target.value)}
+                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Component Allocation Breakdown */}
+                  <div className="space-y-2 pt-2 border-t border-slate-100">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                        Component Allocation
+                      </label>
+                      {parseFloat(packagePaymentAmount || "0") === parseFloat(packageBalanceData.totalRemaining) ? (
+                        <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                          ✓ Full Settlement: all active components will be settled automatically
+                        </span>
+                      ) : (
+                        <span className="text-[11px] font-mono font-semibold text-slate-600">
+                          Allocated: ₦{formatAmount(
+                            Object.values(customAllocations).reduce((sum, v) => sum + (parseFloat(v) || 0), 0)
+                          )} / Total: ₦{formatAmount(packagePaymentAmount || 0)}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
+                      {packageBalanceData.components.map((comp) => {
+                        const remNum = parseFloat(comp.remainingBalance);
+                        const isSettled = remNum <= 0;
+
+                        return (
+                          <div key={comp.feeStructureId} className="p-3 flex items-center justify-between gap-3 hover:bg-slate-50/60 transition-colors">
+                            <div className="space-y-0.5">
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-slate-900 text-xs">{comp.name}</span>
+                                <span className="text-[10px] text-slate-400 font-semibold uppercase">({comp.type})</span>
+                              </div>
+                              <div className="text-[11px] text-slate-500 font-mono">
+                                Due: ₦{formatAmount(comp.amountDue)} • Paid: ₦{formatAmount(comp.amountPaid)} • Remaining: <span className="font-bold text-slate-700">₦{formatAmount(comp.remainingBalance)}</span>
+                              </div>
+                            </div>
+
+                            <div className="w-36 text-right">
+                              {isSettled ? (
+                                <span className="text-[11px] font-bold text-slate-400 uppercase bg-slate-100 px-2 py-1 rounded-md">
+                                  {comp.status === "WAIVED" ? "Waived" : "Settled (₦0)"}
+                                </span>
+                              ) : parseFloat(packagePaymentAmount || "0") === parseFloat(packageBalanceData.totalRemaining) ? (
+                                <span className="text-xs font-mono font-bold text-emerald-700">
+                                  +₦{formatAmount(comp.remainingBalance)}
+                                </span>
+                              ) : (
+                                <div className="flex items-center gap-1">
+                                  <span className="text-xs font-bold text-slate-500 font-mono">₦</span>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    max={remNum}
+                                    value={customAllocations[comp.feeId || ""] || ""}
+                                    onChange={(e) => {
+                                      if (!comp.feeId) return;
+                                      const val = e.target.value;
+                                      setCustomAllocations({
+                                        ...customAllocations,
+                                        [comp.feeId]: val,
+                                      });
+                                    }}
+                                    placeholder="0.00"
+                                    className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white text-right"
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Modal Actions */}
+              <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setPayingPackage(null)}
+                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 font-semibold text-xs transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingPackagePayment || !payPackageStudentId || !packageBalanceData || loadingPackageBalances}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {submittingPackagePayment && (
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  )}
+                  <span>Record Package Payment</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
