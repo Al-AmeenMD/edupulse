@@ -2432,7 +2432,20 @@ export default function FeesManagementPage() {
                               </button>
 
                               {openMenuId === `package-${pkg.id}` && (
-                                <div className="absolute right-0 top-full mt-1 w-36 rounded-xl bg-white border border-slate-200/90 shadow-lg py-1 z-40 animate-in fade-in zoom-in-95 duration-100">
+                                <div className="absolute right-0 top-full mt-1 w-44 rounded-xl bg-white border border-slate-200/90 shadow-lg py-1 z-40 animate-in fade-in zoom-in-95 duration-100">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenMenuId(null);
+                                      handleOpenPayPackageModal(pkg);
+                                    }}
+                                    className="w-full text-left px-3.5 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 flex items-center gap-2 transition-colors cursor-pointer"
+                                  >
+                                    <svg className="w-3.5 h-3.5 text-emerald-600" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6H2.25m0 0v-.75A.75.75 0 0 1 3 4.5h.75m0 0a9.015 9.015 0 0 1 7.5-3.75 9.015 9.015 0 0 1 7.5 3.75h.75a.75.75 0 0 1.75.75V6m0 0v.75a.75.75 0 0 1-.75.75H18m0 0a60.07 60.07 0 0 0-15.797-2.101M3.75 6H18" />
+                                    </svg>
+                                    <span>Record Payment</span>
+                                  </button>
                                   <button
                                     type="button"
                                     onClick={() => {
