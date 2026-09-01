@@ -4868,7 +4868,7 @@ export default function FeesManagementPage() {
       {/* =================================================================== */}
       {historyPackage && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl w-full max-w-3xl overflow-hidden animate-in fade-in zoom-in duration-150">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl w-full max-w-4xl overflow-hidden animate-in fade-in zoom-in duration-150">
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
               <div>
                 <h3 className="font-bold text-slate-900 text-base">Package Payment History</h3>
@@ -4912,8 +4912,8 @@ export default function FeesManagementPage() {
                   <p className="text-xs text-slate-500 mt-1">Payments recorded for this package will appear here with downloadable receipts.</p>
                 </div>
               ) : (
-                <div className="border border-slate-200/90 rounded-2xl overflow-hidden shadow-xs">
-                  <table className="w-full text-left border-collapse">
+                <div className="border border-slate-200/90 rounded-2xl overflow-x-auto shadow-xs">
+                  <table className="w-full text-left border-collapse min-w-[700px]">
                     <thead>
                       <tr className="bg-slate-50/80 border-b border-slate-100 text-xs font-semibold text-slate-500 uppercase tracking-wider">
                         <th className="px-4 py-3">Date</th>

@@ -1,3 +1,4 @@
+// Fee package student balance endpoint
 import { Prisma, Role } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/middleware/withAuth";
