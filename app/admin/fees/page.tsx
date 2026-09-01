@@ -251,6 +251,27 @@ export default function FeesManagementPage() {
   const [downloadingPackagePaymentId, setDownloadingPackagePaymentId] = useState<string | null>(null);
   const [lastPackagePaymentResult, setLastPackagePaymentResult] = useState<{ id: string; receiptNumber: string } | null>(null);
 
+  // Package Payment History State (Modal 11)
+  const [historyPackage, setHistoryPackage] = useState<FeePackageItem | null>(null);
+  const [packageHistoryPayments, setPackageHistoryPayments] = useState<Array<{
+    id: string;
+    receiptNumber: string;
+    amount: string;
+    method: string;
+    reference: string | null;
+    note: string | null;
+    createdAt: string;
+    student?: {
+      id: string;
+      firstName: string;
+      lastName: string;
+      studentId: string;
+      admissionLevel: string | null;
+    };
+  }>>([]);
+  const [loadingPackageHistory, setLoadingPackageHistory] = useState(false);
+  const [packageHistoryError, setPackageHistoryError] = useState("");
+
   // Tab 2: Student Fees State & Filters
   const [studentFees, setStudentFees] = useState<StudentFeeItem[]>([]);
   const [loadingStudentFees, setLoadingStudentFees] = useState(true);
@@ -1795,12 +1816,37 @@ export default function FeesManagementPage() {
       setPayingPackage(null);
       setLastPackagePaymentResult({ id: paymentId, receiptNumber });
       setSuccessMessage(`Package payment of ₦${formatAmount(totalAmt)} recorded successfully! (Receipt: ${receiptNumber})`);
-      setTimeout(() => setSuccessMessage(""), 8000);
       fetchStudentFees();
     } catch (err: any) {
       setPackagePaymentModalError(err.message || "An error occurred while recording package payment.");
     } finally {
       setSubmittingPackagePayment(false);
+    }
+  }
+
+  // Handle Open Package Payment History Modal
+  async function handleOpenPackagePaymentHistory(pkg: FeePackageItem) {
+    setError("");
+    setHistoryPackage(pkg);
+    setPackageHistoryPayments([]);
+    setPackageHistoryError("");
+    setLoadingPackageHistory(true);
+    try {
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) return;
+
+      const res = await fetch(`/api/fees/packages/${pkg.id}/payments`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to fetch package payment history.");
+
+      setPackageHistoryPayments(data.data || []);
+    } catch (err: any) {
+      setPackageHistoryError(err.message || "Failed to load payment history.");
+    } finally {
+      setLoadingPackageHistory(false);
     }
   }
 
@@ -2445,6 +2491,19 @@ export default function FeesManagementPage() {
                                       <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6H2.25m0 0v-.75A.75.75 0 0 1 3 4.5h.75m0 0a9.015 9.015 0 0 1 7.5-3.75 9.015 9.015 0 0 1 7.5 3.75h.75a.75.75 0 0 1.75.75V6m0 0v.75a.75.75 0 0 1-.75.75H18m0 0a60.07 60.07 0 0 0-15.797-2.101M3.75 6H18" />
                                     </svg>
                                     <span>Record Payment</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenMenuId(null);
+                                      handleOpenPackagePaymentHistory(pkg);
+                                    }}
+                                    className="w-full text-left px-3.5 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50 flex items-center gap-2 transition-colors cursor-pointer"
+                                  >
+                                    <svg className="w-3.5 h-3.5 text-blue-600" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                                    </svg>
+                                    <span>Payment History</span>
                                   </button>
                                   <button
                                     type="button"
@@ -4800,6 +4859,133 @@ export default function FeesManagementPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* MODAL 11: PACKAGE PAYMENT HISTORY MODAL                             */}
+      {/* =================================================================== */}
+      {historyPackage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl w-full max-w-3xl overflow-hidden animate-in fade-in zoom-in duration-150">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div>
+                <h3 className="font-bold text-slate-900 text-base">Package Payment History</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Package: <span className="font-bold text-slate-800">"{historyPackage.name}"</span> ({historyPackage.academicYear} {historyPackage.term ? "• " + historyPackage.term : ""})
+                </p>
+              </div>
+              <button
+                onClick={() => setHistoryPackage(null)}
+                className="text-slate-400 hover:text-slate-600 transition-colors p-1 cursor-pointer"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+              {packageHistoryError && (
+                <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center justify-between gap-2">
+                  <span>{packageHistoryError}</span>
+                  <button type="button" onClick={() => setPackageHistoryError("")} className="text-rose-600 font-bold text-xs hover:underline">
+                    Dismiss
+                  </button>
+                </div>
+              )}
+
+              {loadingPackageHistory ? (
+                <div className="py-12 text-center text-slate-400 text-xs">
+                  <span className="inline-block w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mb-2" />
+                  <p>Loading package payment history...</p>
+                </div>
+              ) : packageHistoryPayments.length === 0 ? (
+                <div className="p-12 text-center">
+                  <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mx-auto mb-3">
+                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                    </svg>
+                  </div>
+                  <p className="text-sm font-semibold text-slate-800">No package payments recorded yet</p>
+                  <p className="text-xs text-slate-500 mt-1">Payments recorded for this package will appear here with downloadable receipts.</p>
+                </div>
+              ) : (
+                <div className="border border-slate-200/90 rounded-2xl overflow-hidden shadow-xs">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50/80 border-b border-slate-100 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                        <th className="px-4 py-3">Date</th>
+                        <th className="px-4 py-3">Student</th>
+                        <th className="px-4 py-3">Receipt #</th>
+                        <th className="px-4 py-3">Amount (₦)</th>
+                        <th className="px-4 py-3">Method / Ref</th>
+                        <th className="px-4 py-3 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-xs">
+                      {packageHistoryPayments.map((pmt) => (
+                        <tr key={pmt.id} className="hover:bg-slate-50/60 transition-colors">
+                          <td className="px-4 py-3 text-slate-600 font-medium">
+                            {new Date(pmt.createdAt).toLocaleDateString()} {new Date(pmt.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </td>
+                          <td className="px-4 py-3">
+                            {pmt.student ? (
+                              <div>
+                                <div className="font-bold text-slate-900">{pmt.student.firstName} {pmt.student.lastName}</div>
+                                <div className="text-[10px] text-slate-500 font-mono">{pmt.student.studentId}</div>
+                              </div>
+                            ) : (
+                              <span className="text-slate-400">N/A</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 font-mono font-bold text-slate-700">
+                            {pmt.receiptNumber}
+                          </td>
+                          <td className="px-4 py-3 font-extrabold text-slate-900 font-mono">
+                            ₦{formatAmount(pmt.amount)}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="capitalize font-semibold text-slate-700">{pmt.method.replace('_', ' ')}</span>
+                            {pmt.reference && (
+                              <div className="text-[10px] text-slate-500 font-mono truncate max-w-[120px]">Ref: {pmt.reference}</div>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleDownloadPackageReceipt(pmt.id, pmt.receiptNumber)}
+                              disabled={downloadingPackagePaymentId === pmt.id}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-semibold text-xs transition-colors cursor-pointer shadow-2xs"
+                            >
+                              {downloadingPackagePaymentId === pmt.id ? (
+                                <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                              ) : (
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                                </svg>
+                              )}
+                              <span>Download Receipt (PDF)</span>
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-3.5 border-t border-slate-100 bg-slate-50/50 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setHistoryPackage(null)}
+                className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 font-semibold text-xs transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -1,13 +1,70 @@
 import { Role } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/middleware/withAuth";
+import { prisma } from "@/lib/prisma";
 import { recordPackagePayment, FeePaymentError } from "@/lib/services/feePayment";
 
-type RouteContext = {
-  params: Promise<{
-    id: string;
-  }>;
-};
+export const GET = withAuth(
+  async (req, context) => {
+    try {
+      const schoolId = req.user.schoolId;
+
+      if (!schoolId) {
+        return NextResponse.json(
+          { error: "Forbidden: No school associated with your account" },
+          { status: 403 }
+        );
+      }
+
+      const { id: packageId } = await context.params;
+
+      // Verify package existence and tenant isolation
+      const feePackage = await prisma.feePackage.findFirst({
+        where: {
+          id: packageId,
+          schoolId,
+        },
+      });
+
+      if (!feePackage) {
+        return NextResponse.json(
+          { error: "Fee package not found" },
+          { status: 404 }
+        );
+      }
+
+      const payments = await prisma.packagePayment.findMany({
+        where: {
+          packageId,
+          schoolId,
+        },
+        include: {
+          student: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              studentId: true,
+              admissionLevel: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+      });
+
+      return NextResponse.json({ data: payments });
+    } catch (err: any) {
+      console.error("GET /api/fees/packages/[id]/payments error:", err);
+      return NextResponse.json(
+        { error: "Internal server error" },
+        { status: 500 }
+      );
+    }
+  },
+  [Role.SCHOOL_ADMIN, Role.FINANCE_ADMIN]
+);
 
 export const POST = withAuth(
   async (req, context) => {
@@ -81,3 +138,4 @@ export const POST = withAuth(
   },
   [Role.SCHOOL_ADMIN, Role.FINANCE_ADMIN]
 );
+
