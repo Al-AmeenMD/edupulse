@@ -103,22 +103,27 @@ export const GET = withAuth(
       const components = pkg.items.map((item) => {
         const matchingFee = fees.find((f) => f.feeStructureId === item.feeStructureId);
         if (!matchingFee) {
+          const unassignedAmount = new Prisma.Decimal(item.feeStructure?.amount || 0);
+
           return {
             feeId: null,
             feeStructureId: item.feeStructureId,
             name: item.feeStructure?.name || "Unknown Structure",
             type: item.feeStructure?.type || "MISCELLANEOUS",
-            amountDue: new Prisma.Decimal(item.feeStructure?.amount || 0).toFixed(2),
+            amountDue: unassignedAmount.toFixed(2),
             amountPaid: "0.00",
-            remainingBalance: new Prisma.Decimal(item.feeStructure?.amount || 0).toFixed(2),
+            remainingBalance: unassignedAmount.toFixed(2),
             status: "UNASSIGNED",
             isAssigned: false,
           };
         }
 
-        const due = new Prisma.Decimal(matchingFee.amountDue);
+        const rawDue = new Prisma.Decimal(matchingFee.amountDue);
         const paid = new Prisma.Decimal(matchingFee.amountPaid);
-        const rem = matchingFee.status === "WAIVED"
+        const isWaived = matchingFee.status === "WAIVED";
+
+        const due = isWaived ? new Prisma.Decimal(0) : rawDue;
+        const rem = isWaived
           ? new Prisma.Decimal(0)
           : due.sub(paid).greaterThan(0)
           ? due.sub(paid)
@@ -133,7 +138,7 @@ export const GET = withAuth(
           feeStructureId: matchingFee.feeStructureId,
           name: matchingFee.feeStructure.name,
           type: matchingFee.feeStructure.type,
-          amountDue: due.toFixed(2),
+          amountDue: rawDue.toFixed(2),
           amountPaid: paid.toFixed(2),
           remainingBalance: rem.toFixed(2),
           status: matchingFee.status,

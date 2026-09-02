@@ -242,7 +242,9 @@ export async function recordPackagePayment(
     where: { id: packageId, schoolId },
     include: {
       items: {
-        select: { feeStructureId: true },
+        include: {
+          feeStructure: true,
+        },
       },
     },
   });
@@ -283,19 +285,57 @@ export async function recordPackagePayment(
     throw new FeePaymentError("No assigned fee records found for this student and fee package", 404);
   }
 
-  // Compute remaining balances for each component
-  const componentMap = new Map<string, { fee: (typeof studentFees)[0]; remaining: Prisma.Decimal }>();
+  // Compute remaining balances for each package item (assigned active fees only)
+  interface ComponentState {
+    feeId: string | null;
+    feeStructureId: string;
+    feeStructure: { id: string; name: string; amount: any; dueDate?: any };
+    fee: (typeof studentFees)[0] | null;
+    remaining: Prisma.Decimal;
+    isAssigned: boolean;
+  }
+
+  const componentMap = new Map<string, ComponentState>();
   let totalOutstanding = new Prisma.Decimal(0);
 
-  for (const f of studentFees) {
-    if (f.status === "WAIVED") {
-      componentMap.set(f.id, { fee: f, remaining: new Prisma.Decimal(0) });
+  for (const item of pkg.items) {
+    const matchingFee = studentFees.find((f) => f.feeStructureId === item.feeStructureId);
+    if (!matchingFee) {
+      const state: ComponentState = {
+        feeId: null,
+        feeStructureId: item.feeStructureId,
+        feeStructure: item.feeStructure,
+        fee: null,
+        remaining: new Prisma.Decimal(0), // Unassigned component is non-payable
+        isAssigned: false,
+      };
+      componentMap.set(item.feeStructureId, state);
+    } else if (matchingFee.status === "WAIVED") {
+      const state: ComponentState = {
+        feeId: matchingFee.id,
+        feeStructureId: item.feeStructureId,
+        feeStructure: matchingFee.feeStructure,
+        fee: matchingFee,
+        remaining: new Prisma.Decimal(0),
+        isAssigned: true,
+      };
+      componentMap.set(matchingFee.id, state);
+      componentMap.set(item.feeStructureId, state);
     } else {
-      const due = new Prisma.Decimal(f.amountDue);
-      const paid = new Prisma.Decimal(f.amountPaid);
+      const due = new Prisma.Decimal(matchingFee.amountDue);
+      const paid = new Prisma.Decimal(matchingFee.amountPaid);
       const rem = due.sub(paid);
       const posRem = rem.greaterThan(0) ? rem : new Prisma.Decimal(0);
-      componentMap.set(f.id, { fee: f, remaining: posRem });
+      const state: ComponentState = {
+        feeId: matchingFee.id,
+        feeStructureId: item.feeStructureId,
+        feeStructure: matchingFee.feeStructure,
+        fee: matchingFee,
+        remaining: posRem,
+        isAssigned: true,
+      };
+      componentMap.set(matchingFee.id, state);
+      componentMap.set(item.feeStructureId, state);
       totalOutstanding = totalOutstanding.add(posRem);
     }
   }
@@ -308,7 +348,7 @@ export async function recordPackagePayment(
   }
 
   // Determine allocations
-  const resolvedAllocations: Array<{ feeId: string; amount: Prisma.Decimal }> = [];
+  const resolvedAllocations: Array<{ feeStructureId: string; feeId: string; amount: Prisma.Decimal }> = [];
 
   if (!allocations || allocations.length === 0) {
     // Allocations omitted: only allowed if amount exactly matches total outstanding
@@ -316,10 +356,18 @@ export async function recordPackagePayment(
       throw new FeePaymentError("Partial package payments require explicit per-component allocations", 400);
     }
 
-    // Auto-settle each active component
-    for (const [fId, item] of componentMap.entries()) {
-      if (item.remaining.greaterThan(0)) {
-        resolvedAllocations.push({ feeId: fId, amount: item.remaining });
+    // Auto-settle each assigned active component
+    const processedStructureIds = new Set<string>();
+    for (const item of componentMap.values()) {
+      if (item.isAssigned && item.feeId && !processedStructureIds.has(item.feeStructureId)) {
+        processedStructureIds.add(item.feeStructureId);
+        if (item.remaining.greaterThan(0)) {
+          resolvedAllocations.push({
+            feeStructureId: item.feeStructureId,
+            feeId: item.feeId,
+            amount: item.remaining,
+          });
+        }
       }
     }
   } else {
@@ -332,20 +380,32 @@ export async function recordPackagePayment(
         throw new FeePaymentError("Allocation amounts cannot be negative", 400);
       }
 
-      const comp = componentMap.get(alloc.feeId);
+      const lookupKey = alloc.feeId || (alloc as any).feeStructureId;
+      const comp = componentMap.get(lookupKey);
       if (!comp) {
-        throw new FeePaymentError(`Fee record '${alloc.feeId}' does not belong to this package`, 400);
+        throw new FeePaymentError(`Fee component '${lookupKey}' does not belong to this package`, 400);
+      }
+
+      if (!comp.isAssigned || !comp.feeId) {
+        throw new FeePaymentError(
+          `Component '${comp.feeStructure.name}' has not been assigned to this student yet — assign it individually first`,
+          400
+        );
       }
 
       if (allocAmt.greaterThan(comp.remaining)) {
         throw new FeePaymentError(
-          `Allocation for '${comp.fee.feeStructure.name}' exceeds remaining balance (${comp.remaining.toFixed(2)})`,
+          `Allocation for '${comp.feeStructure.name}' exceeds remaining balance (${comp.remaining.toFixed(2)})`,
           400
         );
       }
 
       sumAllocations = sumAllocations.add(allocAmt);
-      resolvedAllocations.push({ feeId: alloc.feeId, amount: allocAmt });
+      resolvedAllocations.push({
+        feeStructureId: comp.feeStructureId,
+        feeId: comp.feeId,
+        amount: allocAmt,
+      });
     }
 
     if (!sumAllocations.equals(totalPaymentAmount)) {
@@ -380,7 +440,7 @@ export async function recordPackagePayment(
       },
     });
 
-    // 3. Create component Payment rows
+    // 3. Create component Payment rows against existing assigned fees
     const basePaymentCount = await tx.payment.count({ where: { schoolId } });
     const createdPayments: Payment[] = [];
     let componentsSettled = 0;

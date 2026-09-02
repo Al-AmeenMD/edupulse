@@ -1724,8 +1724,9 @@ export default function FeesManagementPage() {
 
       const initialAlloc: Record<string, string> = {};
       for (const comp of balanceInfo.components) {
-        if (comp.feeId && parseFloat(comp.remainingBalance) > 0) {
-          initialAlloc[comp.feeId] = comp.remainingBalance;
+        const key = comp.feeId || comp.feeStructureId;
+        if (key && parseFloat(comp.remainingBalance) > 0) {
+          initialAlloc[key] = comp.remainingBalance;
         }
       }
       setCustomAllocations(initialAlloc);
@@ -1733,6 +1734,28 @@ export default function FeesManagementPage() {
       setPackagePaymentModalError(err.message || "Failed to load student package balance.");
     } finally {
       setLoadingPackageBalances(false);
+    }
+  }
+
+  // Handle Payment Amount Input Change in Package Payment Modal
+  function handlePackagePaymentAmountChange(val: string) {
+    setPackagePaymentAmount(val);
+    if (!packageBalanceData) return;
+
+    const numericVal = parseFloat(val);
+    const totalRem = parseFloat(packageBalanceData.totalRemaining);
+
+    if (!isNaN(numericVal) && Math.abs(numericVal - totalRem) < 0.009) {
+      const fullAlloc: Record<string, string> = {};
+      for (const comp of packageBalanceData.components) {
+        const key = comp.feeId || comp.feeStructureId;
+        if (key && parseFloat(comp.remainingBalance) > 0) {
+          fullAlloc[key] = comp.remainingBalance;
+        }
+      }
+      setCustomAllocations(fullAlloc);
+    } else {
+      setCustomAllocations({});
     }
   }
 
@@ -1754,14 +1777,15 @@ export default function FeesManagementPage() {
     }
 
     const isFullSettlement = totalAmt === parseFloat(packageBalanceData.totalRemaining);
-    let allocationsPayload: Array<{ feeId: string; amount: number }> | undefined = undefined;
+    let allocationsPayload: Array<{ feeId?: string; feeStructureId?: string; amount: number }> | undefined = undefined;
 
     if (!isFullSettlement) {
       let sum = 0;
-      const allocList: Array<{ feeId: string; amount: number }> = [];
+      const allocList: Array<{ feeId?: string; feeStructureId?: string; amount: number }> = [];
       for (const comp of packageBalanceData.components) {
-        if (comp.feeId) {
-          const val = parseFloat(customAllocations[comp.feeId] || "0") || 0;
+        const key = comp.feeId || comp.feeStructureId;
+        if (key) {
+          const val = parseFloat(customAllocations[key] || "0") || 0;
           if (val < 0) {
             setPackagePaymentModalError(`Allocation for ${comp.name} cannot be negative.`);
             return;
@@ -1771,7 +1795,7 @@ export default function FeesManagementPage() {
             return;
           }
           if (val > 0) {
-            allocList.push({ feeId: comp.feeId, amount: val });
+            allocList.push({ feeId: comp.feeId || undefined, feeStructureId: comp.feeStructureId, amount: val });
           }
           sum += val;
         }
@@ -4713,7 +4737,7 @@ export default function FeesManagementPage() {
                         min="0.01"
                         required
                         value={packagePaymentAmount}
-                        onChange={(e) => setPackagePaymentAmount(e.target.value)}
+                        onChange={(e) => handlePackagePaymentAmountChange(e.target.value)}
                         className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
                       />
                     </div>
@@ -4784,7 +4808,9 @@ export default function FeesManagementPage() {
                     <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
                       {packageBalanceData.components.map((comp) => {
                         const remNum = parseFloat(comp.remainingBalance);
+                        const isUnassigned = !comp.isAssigned || comp.status === "UNASSIGNED" || !comp.feeId;
                         const isSettled = remNum <= 0;
+                        const allocKey = comp.feeId || comp.feeStructureId;
 
                         return (
                           <div key={comp.feeStructureId} className="p-3 flex items-center justify-between gap-3 hover:bg-slate-50/60 transition-colors">
@@ -4792,14 +4818,29 @@ export default function FeesManagementPage() {
                               <div className="flex items-center gap-2">
                                 <span className="font-semibold text-slate-900 text-xs">{comp.name}</span>
                                 <span className="text-[10px] text-slate-400 font-semibold uppercase">({comp.type})</span>
+                                {isUnassigned && (
+                                  <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                                    Not Assigned
+                                  </span>
+                                )}
                               </div>
                               <div className="text-[11px] text-slate-500 font-mono">
-                                Due: ₦{formatAmount(comp.amountDue)} • Paid: ₦{formatAmount(comp.amountPaid)} • Remaining: <span className="font-bold text-slate-700">₦{formatAmount(comp.remainingBalance)}</span>
+                                {isUnassigned ? (
+                                  <span className="text-amber-700 font-medium">Unassigned to student — assign component individually first</span>
+                                ) : (
+                                  <>
+                                    Due: ₦{formatAmount(comp.amountDue)} • Paid: ₦{formatAmount(comp.amountPaid)} • Remaining: <span className="font-bold text-slate-700">₦{formatAmount(comp.remainingBalance)}</span>
+                                  </>
+                                )}
                               </div>
                             </div>
 
                             <div className="w-36 text-right">
-                              {isSettled ? (
+                              {isUnassigned ? (
+                                <span className="text-[11px] font-bold text-amber-700 uppercase bg-amber-50 border border-amber-200 px-2 py-1 rounded-md">
+                                  Unassigned
+                                </span>
+                              ) : isSettled ? (
                                 <span className="text-[11px] font-bold text-slate-400 uppercase bg-slate-100 px-2 py-1 rounded-md">
                                   {comp.status === "WAIVED" ? "Waived" : "Settled (₦0)"}
                                 </span>
@@ -4815,13 +4856,12 @@ export default function FeesManagementPage() {
                                     step="0.01"
                                     min="0"
                                     max={remNum}
-                                    value={customAllocations[comp.feeId || ""] || ""}
+                                    value={customAllocations[allocKey] || ""}
                                     onChange={(e) => {
-                                      if (!comp.feeId) return;
                                       const val = e.target.value;
                                       setCustomAllocations({
                                         ...customAllocations,
-                                        [comp.feeId]: val,
+                                        [allocKey]: val,
                                       });
                                     }}
                                     placeholder="0.00"
