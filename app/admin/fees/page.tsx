@@ -4787,94 +4787,114 @@ export default function FeesManagementPage() {
                   </div>
 
                   {/* Component Allocation Breakdown */}
-                  <div className="space-y-2 pt-2 border-t border-slate-100">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
-                        Component Allocation
-                      </label>
-                      {parseFloat(packagePaymentAmount || "0") === parseFloat(packageBalanceData.totalRemaining) ? (
-                        <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                          ✓ Full Settlement: all active components will be settled automatically
-                        </span>
-                      ) : (
-                        <span className="text-[11px] font-mono font-semibold text-slate-600">
-                          Allocated: ₦{formatAmount(
-                            Object.values(customAllocations).reduce((sum, v) => sum + (parseFloat(v) || 0), 0)
-                          )} / Total: ₦{formatAmount(packagePaymentAmount || 0)}
-                        </span>
-                      )}
-                    </div>
+                  {(() => {
+                    const parsedTotal = parseFloat(packagePaymentAmount || "0") || 0;
+                    const isFullSettlement = parsedTotal === parseFloat(packageBalanceData.totalRemaining);
+                    const currentAllocatedSum = Object.values(customAllocations).reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
+                    const variance = Math.abs(currentAllocatedSum - parsedTotal);
+                    const isMismatched = !isFullSettlement && (parsedTotal <= 0 || variance > 0.009);
 
-                    <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
-                      {packageBalanceData.components.map((comp) => {
-                        const remNum = parseFloat(comp.remainingBalance);
-                        const isUnassigned = !comp.isAssigned || comp.status === "UNASSIGNED" || !comp.feeId;
-                        const isSettled = remNum <= 0;
-                        const allocKey = comp.feeId || comp.feeStructureId;
+                    return (
+                      <div className="space-y-2 pt-2 border-t border-slate-100">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                            Component Allocation
+                          </label>
+                          {isFullSettlement ? (
+                            <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                              ✓ Full Settlement: all active components will be settled automatically
+                            </span>
+                          ) : parsedTotal <= 0 ? (
+                            <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                              Enter a valid payment amount first
+                            </span>
+                          ) : variance <= 0.009 ? (
+                            <span className="text-[11px] font-mono font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-md border border-emerald-200">
+                              ✓ Allocations Match: ₦{formatAmount(currentAllocatedSum)} / ₦{formatAmount(parsedTotal)}
+                            </span>
+                          ) : currentAllocatedSum < parsedTotal ? (
+                            <span className="text-[11px] font-mono font-bold text-rose-700 bg-rose-50 px-2.5 py-0.5 rounded-md border border-rose-200">
+                              Mismatched: ₦{formatAmount(currentAllocatedSum)} of ₦{formatAmount(parsedTotal)} allocated (₦{formatAmount(parsedTotal - currentAllocatedSum)} remaining)
+                            </span>
+                          ) : (
+                            <span className="text-[11px] font-mono font-bold text-rose-700 bg-rose-50 px-2.5 py-0.5 rounded-md border border-rose-200">
+                              Mismatched: ₦{formatAmount(currentAllocatedSum)} of ₦{formatAmount(parsedTotal)} allocated (₦{formatAmount(currentAllocatedSum - parsedTotal)} over-allocated)
+                            </span>
+                          )}
+                        </div>
 
-                        return (
-                          <div key={comp.feeStructureId} className="p-3 flex items-center justify-between gap-3 hover:bg-slate-50/60 transition-colors">
-                            <div className="space-y-0.5">
-                              <div className="flex items-center gap-2">
-                                <span className="font-semibold text-slate-900 text-xs">{comp.name}</span>
-                                <span className="text-[10px] text-slate-400 font-semibold uppercase">({comp.type})</span>
-                                {isUnassigned && (
-                                  <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
-                                    Not Assigned
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-[11px] text-slate-500 font-mono">
-                                {isUnassigned ? (
-                                  <span className="text-amber-700 font-medium">Unassigned to student — assign component individually first</span>
-                                ) : (
-                                  <>
-                                    Due: ₦{formatAmount(comp.amountDue)} • Paid: ₦{formatAmount(comp.amountPaid)} • Remaining: <span className="font-bold text-slate-700">₦{formatAmount(comp.remainingBalance)}</span>
-                                  </>
-                                )}
-                              </div>
-                            </div>
+                        <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
+                          {packageBalanceData.components.map((comp) => {
+                            const remNum = parseFloat(comp.remainingBalance);
+                            const isUnassigned = !comp.isAssigned || comp.status === "UNASSIGNED" || !comp.feeId;
+                            const isSettled = remNum <= 0;
+                            const allocKey = comp.feeId || comp.feeStructureId;
 
-                            <div className="w-36 text-right">
-                              {isUnassigned ? (
-                                <span className="text-[11px] font-bold text-amber-700 uppercase bg-amber-50 border border-amber-200 px-2 py-1 rounded-md">
-                                  Unassigned
-                                </span>
-                              ) : isSettled ? (
-                                <span className="text-[11px] font-bold text-slate-400 uppercase bg-slate-100 px-2 py-1 rounded-md">
-                                  {comp.status === "WAIVED" ? "Waived" : "Settled (₦0)"}
-                                </span>
-                              ) : parseFloat(packagePaymentAmount || "0") === parseFloat(packageBalanceData.totalRemaining) ? (
-                                <span className="text-xs font-mono font-bold text-emerald-700">
-                                  +₦{formatAmount(comp.remainingBalance)}
-                                </span>
-                              ) : (
-                                <div className="flex items-center gap-1">
-                                  <span className="text-xs font-bold text-slate-500 font-mono">₦</span>
-                                  <input
-                                    type="number"
-                                    step="0.01"
-                                    min="0"
-                                    max={remNum}
-                                    value={customAllocations[allocKey] || ""}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      setCustomAllocations({
-                                        ...customAllocations,
-                                        [allocKey]: val,
-                                      });
-                                    }}
-                                    placeholder="0.00"
-                                    className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white text-right"
-                                  />
+                            return (
+                              <div key={comp.feeStructureId} className="p-3 flex items-center justify-between gap-3 hover:bg-slate-50/60 transition-colors">
+                                <div className="space-y-0.5">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-semibold text-slate-900 text-xs">{comp.name}</span>
+                                    <span className="text-[10px] text-slate-400 font-semibold uppercase">({comp.type})</span>
+                                    {isUnassigned && (
+                                      <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                                        Not Assigned
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-[11px] text-slate-500 font-mono">
+                                    {isUnassigned ? (
+                                      <span className="text-amber-700 font-medium">Unassigned to student — assign component individually first</span>
+                                    ) : (
+                                      <>
+                                        Due: ₦{formatAmount(comp.amountDue)} • Paid: ₦{formatAmount(comp.amountPaid)} • Remaining: <span className="font-bold text-slate-700">₦{formatAmount(comp.remainingBalance)}</span>
+                                      </>
+                                    )}
+                                  </div>
                                 </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
+
+                                <div className="w-36 text-right">
+                                  {isUnassigned ? (
+                                    <span className="text-[11px] font-bold text-amber-700 uppercase bg-amber-50 border border-amber-200 px-2 py-1 rounded-md">
+                                      Unassigned
+                                    </span>
+                                  ) : isSettled ? (
+                                    <span className="text-[11px] font-bold text-slate-400 uppercase bg-slate-100 px-2 py-1 rounded-md">
+                                      {comp.status === "WAIVED" ? "Waived" : "Settled (₦0)"}
+                                    </span>
+                                  ) : isFullSettlement ? (
+                                    <span className="text-xs font-mono font-bold text-emerald-700">
+                                      +₦{formatAmount(comp.remainingBalance)}
+                                    </span>
+                                  ) : (
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-xs font-bold text-slate-500 font-mono">₦</span>
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        max={remNum}
+                                        value={customAllocations[allocKey] || ""}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          setCustomAllocations({
+                                            ...customAllocations,
+                                            [allocKey]: val,
+                                          });
+                                        }}
+                                        placeholder="0.00"
+                                        className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white text-right"
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
@@ -4887,16 +4907,33 @@ export default function FeesManagementPage() {
                 >
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  disabled={submittingPackagePayment || !payPackageStudentId || !packageBalanceData || loadingPackageBalances}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-                >
-                  {submittingPackagePayment && (
-                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  )}
-                  <span>Record Package Payment</span>
-                </button>
+                {(() => {
+                  const parsedTotal = parseFloat(packagePaymentAmount || "0") || 0;
+                  const totalRem = packageBalanceData ? parseFloat(packageBalanceData.totalRemaining) : 0;
+                  const isFullSettlement = parsedTotal === totalRem && parsedTotal > 0;
+                  const currentAllocatedSum = Object.values(customAllocations).reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
+                  const isAllocationInvalid = !isFullSettlement && (parsedTotal <= 0 || Math.abs(currentAllocatedSum - parsedTotal) > 0.009);
+
+                  return (
+                    <button
+                      type="submit"
+                      disabled={
+                        submittingPackagePayment ||
+                        !payPackageStudentId ||
+                        !packageBalanceData ||
+                        loadingPackageBalances ||
+                        parsedTotal <= 0 ||
+                        isAllocationInvalid
+                      }
+                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-xs transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {submittingPackagePayment && (
+                        <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      )}
+                      <span>Record Package Payment</span>
+                    </button>
+                  );
+                })()}
               </div>
             </form>
           </div>

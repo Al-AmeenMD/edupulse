@@ -78,6 +78,73 @@ export const GET = withAuth(
         );
       }
 
+      // Fetch all assigned Fee records for this student matching bundled package structures with all payments for historical point-in-time calculation
+      const bundledStructureIds = packagePayment.package?.items.map((it) => it.feeStructureId) || [];
+      const studentPackageFees = await prisma.fee.findMany({
+        where: {
+          schoolId,
+          studentId: packagePayment.studentId,
+          feeStructureId: { in: bundledStructureIds },
+        },
+        include: {
+          feeStructure: true,
+          payments: {
+            orderBy: { paidAt: "asc" },
+            select: {
+              id: true,
+              amount: true,
+              paidAt: true,
+              packagePaymentId: true,
+            },
+          },
+        },
+      });
+
+      // 1. Total Package Cost (bundled package face value)
+      let totalPackageCost = new Prisma.Decimal(0);
+      if (packagePayment.package?.items) {
+        for (const it of packagePayment.package.items) {
+          if (it.feeStructure?.amount) {
+            totalPackageCost = totalPackageCost.add(new Prisma.Decimal(it.feeStructure.amount));
+          }
+        }
+      }
+
+      // 2. Total Paid This Transaction
+      const totalPaidThisTransaction = new Prisma.Decimal(packagePayment.amount);
+
+      // 3. Point-in-time Net Remaining Package Balance (accounting for all bundled components up to this transaction)
+      const targetTransactionTime = new Date(packagePayment.paidAt).getTime();
+      let netRemainingPackageBalance = new Prisma.Decimal(0);
+
+      for (const item of packagePayment.package?.items || []) {
+        const matchingFee = studentPackageFees.find((f) => f.feeStructureId === item.feeStructureId);
+        if (!matchingFee || matchingFee.status === "WAIVED") {
+          // Unassigned or waived components contribute 0 to outstanding balance
+          continue;
+        }
+
+        const feeAmountDue = new Prisma.Decimal(matchingFee.amountDue);
+        let cumulativePaidForFee = new Prisma.Decimal(0);
+
+        for (const p of matchingFee.payments) {
+          const pTime = new Date(p.paidAt).getTime();
+          // Include this payment if it belongs to this PackagePayment, or occurred strictly before it
+          const belongsToThisPackagePayment = p.packagePaymentId === packagePayment.id;
+          const isPrior = pTime < targetTransactionTime || (pTime === targetTransactionTime && p.id <= packagePayment.id);
+
+          if (belongsToThisPackagePayment || isPrior) {
+            cumulativePaidForFee = cumulativePaidForFee.add(new Prisma.Decimal(p.amount));
+          }
+        }
+
+        const feeRemaining = feeAmountDue.greaterThan(cumulativePaidForFee)
+          ? feeAmountDue.sub(cumulativePaidForFee)
+          : new Prisma.Decimal(0);
+
+        netRemainingPackageBalance = netRemainingPackageBalance.add(feeRemaining);
+      }
+
       // Look up recorder user
       const recorder = await prisma.user.findFirst({
         where: { id: packagePayment.recordedBy, schoolId },
@@ -294,7 +361,7 @@ export const GET = withAuth(
         y -= 20;
       }
 
-      // Check if package had other items not in this payment (e.g. 0-allocated or already settled)
+      // Check if package had other items not in this payment (e.g. 0-allocated or already settled or unassigned)
       const paidFeeIds = new Set(packagePayment.payments.map((p) => p.fee.feeStructureId));
       if (packagePayment.package?.items) {
         for (const item of packagePayment.package.items) {
@@ -309,10 +376,17 @@ export const GET = withAuth(
               borderWidth: 0.5,
             });
 
+            const matchingFee = studentPackageFees.find((f) => f.feeStructureId === item.feeStructureId);
+            const statusNote = !matchingFee
+              ? "Unassigned (Nil)"
+              : matchingFee.status === "WAIVED"
+              ? "Waived (Nil)"
+              : "Previously Settled / Nil";
+
             page.drawText(item.feeStructure.name.substring(0, 26), { x: 50, y: y - 13, size: 8, font: fontRegular, color: colorMuted });
             page.drawText(item.feeStructure.type, { x: 210, y: y - 13, size: 8, font: fontRegular, color: colorMuted });
             page.drawText("-", { x: 280, y: y - 13, size: 8, font: fontRegular, color: colorMuted });
-            page.drawText("Previously Settled / Nil", { x: 400, y: y - 13, size: 8, font: fontRegular, color: colorMuted });
+            page.drawText(statusNote, { x: 400, y: y - 13, size: 8, font: fontRegular, color: colorMuted });
             page.drawText("NGN 0.00", { x: 480, y: y - 13, size: 8, font: fontRegular, color: colorMuted });
 
             y -= 20;
@@ -320,54 +394,96 @@ export const GET = withAuth(
         }
       }
 
-      // 6. Total Amount Box
-      y -= 10;
+      // 6. Comprehensive Financial Summary Box (All 3 Figures)
+      y -= 12;
       page.drawRectangle({
-        x: width - 260,
-        y: y - 35,
-        width: 220,
-        height: 40,
+        x: 40,
+        y: y - 72,
+        width: width - 80,
+        height: 72,
         color: colorCardBg,
-        borderColor: colorEmerald,
-        borderWidth: 1.5,
+        borderColor: colorBorder,
+        borderWidth: 1,
       });
 
-      page.drawText("TOTAL PAID THIS TRANSACTION:", {
-        x: width - 250,
-        y: y - 15,
-        size: 8,
-        font: fontBold,
+      // Row 1: Total Package Cost
+      page.drawText("Total Package Cost:", {
+        x: 55,
+        y: y - 18,
+        size: 9,
+        font: fontRegular,
         color: colorMuted,
       });
+      page.drawText(formatNairaPlain(totalPackageCost.toFixed(2)), {
+        x: 210,
+        y: y - 18,
+        size: 9,
+        font: fontBold,
+        color: colorDarkText,
+      });
 
-      page.drawText(formatNairaPlain(packagePayment.amount), {
-        x: width - 250,
-        y: y - 30,
-        size: 13,
+      // Row 2: Total Paid This Transaction
+      page.drawText("Total Paid This Transaction:", {
+        x: 55,
+        y: y - 38,
+        size: 9,
+        font: fontBold,
+        color: colorEmerald,
+      });
+      page.drawText(formatNairaPlain(totalPaidThisTransaction.toFixed(2)), {
+        x: 210,
+        y: y - 38,
+        size: 10,
         font: fontBold,
         color: colorEmerald,
       });
 
-      // 7. Footer / Authorization
+      // Row 3: Net Remaining Package Balance (Point-in-Time)
+      const hasPackageRemaining = netRemainingPackageBalance.greaterThan(0);
+      page.drawText("Net Remaining Package Balance:", {
+        x: 55,
+        y: y - 58,
+        size: 9,
+        font: fontBold,
+        color: hasPackageRemaining ? rgb(0.7, 0.15, 0.15) : colorNavy,
+      });
+      page.drawText(formatNairaPlain(netRemainingPackageBalance.toFixed(2)), {
+        x: 210,
+        y: y - 58,
+        size: 10,
+        font: fontBold,
+        color: hasPackageRemaining ? rgb(0.7, 0.15, 0.15) : colorNavy,
+      });
+
+      // 7. Standardized Official Footer Seal (Unified with Single Fee Receipt)
       const footerY = 70;
       page.drawLine({
-        start: { x: 40, y: footerY + 25 },
-        end: { x: width - 40, y: footerY + 25 },
+        start: { x: 40, y: footerY + 28 },
+        end: { x: width - 40, y: footerY + 28 },
         thickness: 1,
         color: colorBorder,
       });
 
-      page.drawText("This is an official system-generated payment receipt produced by EduPulse School Management System.", {
+      page.drawText("EduPulse School Management System - Verified Payment Receipt", {
         x: 40,
-        y: footerY + 10,
-        size: 7.5,
+        y: footerY + 12,
+        size: 8,
+        font: fontBold,
+        color: colorNavy,
+      });
+
+      page.drawText(`Recorded By: ${recordedByName} | Generated: ${new Date().toUTCString()}`, {
+        x: 40,
+        y: footerY - 2,
+        size: 7,
         font: fontRegular,
         color: colorMuted,
       });
-      page.drawText(`Generated on ${new Date().toISOString()} - Receipt Reference: ${packagePayment.receiptNumber}`, {
-        x: 40,
+
+      page.drawText("This is an official computer-generated receipt.", {
+        x: width - 210,
         y: footerY - 2,
-        size: 7.5,
+        size: 7,
         font: fontRegular,
         color: colorMuted,
       });
