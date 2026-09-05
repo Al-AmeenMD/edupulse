@@ -2,17 +2,9 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { StudentSelector } from "@/components/ui/StudentSelector";
+import { TeacherSelector, TeacherItem } from "@/components/ui/TeacherSelector";
 
-interface Teacher {
-  id: string;
-  userId: string;
-  user: {
-    id: string;
-    firstName: string;
-    lastName: string;
-    email: string;
-  };
-}
+interface Teacher extends TeacherItem {}
 
 interface ClassItem {
   id: string;
@@ -863,23 +855,14 @@ export default function ClassesPage() {
                 />
               </div>
 
-              <div className="space-y-1">
-                <label className="block text-xs font-semibold text-slate-700">
-                  Assign Teacher
-                </label>
-                <select
-                  value={teacherId}
-                  onChange={(e) => setTeacherId(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 font-medium"
-                >
-                  <option value="">Select Teacher (Optional)</option>
-                  {teachers.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.user.firstName} {t.user.lastName} ({t.user.email})
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <TeacherSelector
+                label="Assign Teacher"
+                teachers={teachers}
+                value={teacherId}
+                onChange={(id) => setTeacherId(id)}
+                classes={classes}
+                placeholder="Select Class Teacher (Optional)"
+              />
 
               <div className="pt-4 flex justify-end gap-3 border-t border-slate-100">
                 <button
@@ -1017,23 +1000,14 @@ export default function ClassesPage() {
                 />
               </div>
 
-              <div className="space-y-1">
-                <label className="block text-xs font-semibold text-slate-700">
-                  Assigned Teacher
-                </label>
-                <select
-                  value={editTeacherId}
-                  onChange={(e) => setEditTeacherId(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 font-medium"
-                >
-                  <option value="">Select Teacher (Optional)</option>
-                  {teachers.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.user.firstName} {t.user.lastName} ({t.user.email})
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <TeacherSelector
+                label="Assigned Teacher"
+                teachers={teachers}
+                value={editTeacherId}
+                onChange={(id) => setEditTeacherId(id)}
+                classes={classes}
+                placeholder="Select Class Teacher (Optional)"
+              />
 
               <div className="pt-4 flex justify-end gap-3 border-t border-slate-100">
                 <button
