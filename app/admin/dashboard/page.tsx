@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { formatNaira } from "@/lib/formatters";
 
 interface Teacher {
   id: string;
@@ -410,12 +411,6 @@ export default function AdminDashboardPage() {
                       ? `${fee.student.firstName} ${fee.student.lastName}`
                       : "Unknown Student";
                     const feeName = fee.feeStructure?.name || "Tuition Fee";
-                    const formattedAmount = Number(
-                      fee.feeStructure?.amount || 0
-                    ).toLocaleString("en-NG", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    });
 
                     return (
                       <tr key={fee.id} className="hover:bg-slate-50/60 transition-colors">
@@ -425,8 +420,8 @@ export default function AdminDashboardPage() {
                         <td className="px-6 py-3.5 text-slate-600 text-xs">
                           {feeName}
                         </td>
-                        <td className="px-6 py-3.5 font-semibold text-rose-600 text-xs font-mono">
-                          {formattedAmount}
+                        <td className="px-6 py-3.5 font-semibold text-rose-600 text-xs tabular-nums">
+                          {formatNaira(fee.feeStructure?.amount || "0")}
                         </td>
                         <td className="px-6 py-3.5 text-right text-xs font-medium text-rose-700">
                           {new Date(fee.dueDate).toLocaleDateString()}

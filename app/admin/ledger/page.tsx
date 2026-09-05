@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import Link from "next/link";
+import { formatNaira } from "@/lib/formatters";
 
 interface LedgerEntry {
   id: string;
@@ -169,10 +170,7 @@ export default function FinancialLedgerPage() {
     setCurrentPage(1);
   }
 
-  function formatCurrency(val: string | number) {
-    const num = typeof val === "number" ? val : parseFloat(val) || 0;
-    return "₦" + num.toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }
+
 
   function formatDateTime(isoString: string) {
     if (!isoString) return "—";
@@ -236,8 +234,8 @@ export default function FinancialLedgerPage() {
             </div>
           </div>
           <div className="mt-3">
-            <h3 className="text-2xl font-extrabold text-emerald-700 font-mono">
-              +{formatCurrency(summary.totalInflow)}
+            <h3 className="text-2xl font-extrabold text-emerald-700">
+              {formatNaira(summary.totalInflow, { showPlus: true })}
             </h3>
             <p className="text-xs text-slate-500 mt-1 font-medium">
               {summary.counts.payments} payments recorded
@@ -256,8 +254,8 @@ export default function FinancialLedgerPage() {
             </div>
           </div>
           <div className="mt-3">
-            <h3 className="text-2xl font-extrabold text-rose-700 font-mono">
-              -{formatCurrency(summary.totalOutflow)}
+            <h3 className="text-2xl font-extrabold text-rose-700">
+              {formatNaira(summary.totalOutflow, { showMinus: true })}
             </h3>
             <p className="text-xs text-slate-500 mt-1 font-medium">
               {summary.counts.expenses} expenses recorded
@@ -276,8 +274,8 @@ export default function FinancialLedgerPage() {
             </div>
           </div>
           <div className="mt-3">
-            <h3 className={`text-2xl font-extrabold font-mono ${parseFloat(summary.netCashFlow) >= 0 ? "text-blue-700" : "text-amber-700"}`}>
-              {formatCurrency(summary.netCashFlow)}
+            <h3 className={`text-2xl font-extrabold ${!summary.netCashFlow.startsWith("-") ? "text-blue-700" : "text-amber-700"}`}>
+              {formatNaira(summary.netCashFlow)}
             </h3>
             <p className="text-xs text-slate-500 mt-1 font-medium">
               Inflow minus Outflow
@@ -296,8 +294,8 @@ export default function FinancialLedgerPage() {
             </div>
           </div>
           <div className="mt-3">
-            <h3 className="text-2xl font-extrabold text-amber-700 font-mono">
-              {formatCurrency(summary.totalBudgeted)}
+            <h3 className="text-2xl font-extrabold text-amber-700">
+              {formatNaira(summary.totalBudgeted)}
             </h3>
             <p className="text-xs text-slate-500 mt-1 font-medium">
               {summary.counts.budgetChanges} planning events • Non-Cash
@@ -568,15 +566,15 @@ export default function FinancialLedgerPage() {
                       </td>
 
                       {/* Amount & Direction */}
-                      <td className="px-6 py-4 whitespace-nowrap text-right font-mono text-sm font-bold">
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-bold tabular-nums">
                         {isPayment && (
-                          <span className="text-emerald-700">+{formatCurrency(entry.amount)}</span>
+                          <span className="text-emerald-700">{formatNaira(entry.amount, { showPlus: true })}</span>
                         )}
                         {isExpense && (
-                          <span className="text-rose-700">-{formatCurrency(entry.amount)}</span>
+                          <span className="text-rose-700">{formatNaira(entry.amount, { showMinus: true })}</span>
                         )}
                         {isBudget && (
-                          <span className="text-slate-700">{formatCurrency(entry.amount)}</span>
+                          <span className="text-slate-700">{formatNaira(entry.amount)}</span>
                         )}
                       </td>
 

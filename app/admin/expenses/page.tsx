@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
+import { formatNaira } from "@/lib/formatters";
 
 type ExpenseItem = {
   id: string;
@@ -153,14 +154,6 @@ export default function ExpensesPage() {
     setStartDateFilter("");
     setEndDateFilter("");
     fetchExpenses({ search: "", category: "ALL", startDate: "", endDate: "" });
-  };
-
-  const formatNaira = (valStr: string) => {
-    const num = parseFloat(valStr) || 0;
-    return `₦${num.toLocaleString("en-NG", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}`;
   };
 
   // Unique category list for dropdown
@@ -391,7 +384,7 @@ export default function ExpensesPage() {
             Total Expenditures
           </span>
           <div className="mt-3 flex items-baseline justify-between">
-            <span className="text-2xl font-black font-mono text-slate-900">
+            <span className="text-2xl font-bold text-slate-900">
               {formatNaira(stats.totalAmount)}
             </span>
           </div>
@@ -403,7 +396,7 @@ export default function ExpensesPage() {
             This Month's Spend
           </span>
           <div className="mt-3 flex items-baseline justify-between">
-            <span className="text-2xl font-black font-mono text-indigo-600">
+            <span className="text-2xl font-bold text-indigo-600">
               {formatNaira(stats.thisMonthAmount)}
             </span>
           </div>
@@ -427,7 +420,7 @@ export default function ExpensesPage() {
             Recorded Transactions
           </span>
           <div className="mt-3 flex items-baseline justify-between">
-            <span className="text-2xl font-black font-mono text-slate-900">
+            <span className="text-2xl font-bold text-slate-900">
               {stats.totalCount}
             </span>
           </div>
@@ -590,7 +583,7 @@ export default function ExpensesPage() {
                     <td className="px-6 py-4 text-slate-800 font-medium max-w-md truncate">
                       {item.description}
                     </td>
-                    <td className="px-6 py-4 font-mono font-bold text-slate-900 whitespace-nowrap">
+                    <td className="px-6 py-4 font-bold text-slate-900 whitespace-nowrap tabular-nums">
                       {formatNaira(item.amount)}
                     </td>
                     <td className="px-6 py-4 text-xs text-slate-500 whitespace-nowrap">

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { formatAmount, formatNaira } from "@/lib/formatters";
 
 interface DashboardStats {
   totalFeesAssigned: string;
@@ -104,18 +105,7 @@ interface BreakdownData {
   byMonth: MonthBreakdownItem[];
 }
 
-// Currency formatters for Nigerian Naira (₦)
-function formatAmount(amount: number | string): string {
-  const num = typeof amount === "number" ? amount : parseFloat(amount) || 0;
-  return num.toLocaleString("en-NG", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
 
-function formatNaira(amount: number | string): string {
-  return `₦${formatAmount(amount)}`;
-}
 
 export default function FinanceDashboardPage() {
   const [data, setData] = useState<DashboardSummaryData | null>(null);
@@ -443,10 +433,10 @@ export default function FinanceDashboardPage() {
                             <span className="inline-block w-2.5 h-2.5 rounded-full bg-indigo-500 shrink-0" />
                             <span>{item.label}</span>
                           </td>
-                          <td className="px-6 py-3.5 text-slate-700 text-xs font-mono">
+                          <td className="px-6 py-3.5 text-slate-700 text-xs font-semibold tabular-nums">
                             {formatNaira(item.totalAssigned)}
                           </td>
-                          <td className="px-6 py-3.5 font-semibold text-emerald-600 text-xs font-mono">
+                          <td className="px-6 py-3.5 font-semibold text-emerald-600 text-xs tabular-nums">
                             {formatNaira(item.totalCollected)}
                           </td>
                           <td className="px-6 py-3.5">
@@ -463,12 +453,12 @@ export default function FinanceDashboardPage() {
                                   style={{ width: `${Math.min(100, rateNum)}%` }}
                                 />
                               </div>
-                              <span className="text-xs font-semibold text-slate-700 font-mono">
+                              <span className="text-xs font-semibold text-slate-700 tabular-nums">
                                 {item.collectionRate}
                               </span>
                             </div>
                           </td>
-                          <td className="px-6 py-3.5 font-semibold text-amber-600 text-xs font-mono">
+                          <td className="px-6 py-3.5 font-semibold text-amber-600 text-xs tabular-nums">
                             {formatNaira(item.totalOutstanding)}
                           </td>
                           <td className="px-6 py-3.5 text-right text-xs text-slate-500 font-medium">
@@ -518,10 +508,10 @@ export default function FinanceDashboardPage() {
                           <td className="px-6 py-3.5 font-bold text-slate-900">
                             {item.academicYear}
                           </td>
-                          <td className="px-6 py-3.5 text-slate-700 text-xs font-mono">
+                          <td className="px-6 py-3.5 text-slate-700 text-xs font-semibold tabular-nums">
                             {formatNaira(item.totalAssigned)}
                           </td>
-                          <td className="px-6 py-3.5 font-semibold text-emerald-600 text-xs font-mono">
+                          <td className="px-6 py-3.5 font-semibold text-emerald-600 text-xs tabular-nums">
                             {formatNaira(item.totalCollected)}
                           </td>
                           <td className="px-6 py-3.5">
@@ -538,12 +528,12 @@ export default function FinanceDashboardPage() {
                                   style={{ width: `${Math.min(100, rateNum)}%` }}
                                 />
                               </div>
-                              <span className="text-xs font-semibold text-slate-700 font-mono">
+                              <span className="text-xs font-semibold text-slate-700 tabular-nums">
                                 {item.collectionRate}
                               </span>
                             </div>
                           </td>
-                          <td className="px-6 py-3.5 font-semibold text-amber-600 text-xs font-mono">
+                          <td className="px-6 py-3.5 font-semibold text-amber-600 text-xs tabular-nums">
                             {formatNaira(item.totalOutstanding)}
                           </td>
                           <td className="px-6 py-3.5 text-right text-xs text-slate-500 font-medium">
@@ -593,10 +583,10 @@ export default function FinanceDashboardPage() {
                           <td className="px-6 py-3.5 font-bold text-slate-900">
                             {item.term}
                           </td>
-                          <td className="px-6 py-3.5 text-slate-700 text-xs font-mono">
+                          <td className="px-6 py-3.5 text-slate-700 text-xs font-semibold tabular-nums">
                             {formatNaira(item.totalAssigned)}
                           </td>
-                          <td className="px-6 py-3.5 font-semibold text-emerald-600 text-xs font-mono">
+                          <td className="px-6 py-3.5 font-semibold text-emerald-600 text-xs tabular-nums">
                             {formatNaira(item.totalCollected)}
                           </td>
                           <td className="px-6 py-3.5">
@@ -613,12 +603,12 @@ export default function FinanceDashboardPage() {
                                   style={{ width: `${Math.min(100, rateNum)}%` }}
                                 />
                               </div>
-                              <span className="text-xs font-semibold text-slate-700 font-mono">
+                              <span className="text-xs font-semibold text-slate-700 tabular-nums">
                                 {item.collectionRate}
                               </span>
                             </div>
                           </td>
-                          <td className="px-6 py-3.5 font-semibold text-amber-600 text-xs font-mono">
+                          <td className="px-6 py-3.5 font-semibold text-amber-600 text-xs tabular-nums">
                             {formatNaira(item.totalOutstanding)}
                           </td>
                           <td className="px-6 py-3.5 text-right text-xs text-slate-500 font-medium">
@@ -666,10 +656,10 @@ export default function FinanceDashboardPage() {
                           </svg>
                           <span>{item.monthLabel}</span>
                         </td>
-                        <td className="px-6 py-3.5 font-semibold text-emerald-600 text-sm font-mono">
+                        <td className="px-6 py-3.5 font-semibold text-emerald-600 text-sm tabular-nums">
                           {formatNaira(item.totalCollected)}
                         </td>
-                        <td className="px-6 py-3.5 text-right text-xs text-slate-600 font-semibold font-mono">
+                        <td className="px-6 py-3.5 text-right text-xs text-slate-600 font-medium">
                           {item.paymentCount} {item.paymentCount === 1 ? "receipt" : "receipts"} recorded
                         </td>
                       </tr>
@@ -744,7 +734,7 @@ export default function FinanceDashboardPage() {
                         <td className="px-6 py-3.5 text-slate-600 text-xs">
                           {feeName}
                         </td>
-                        <td className="px-6 py-3.5 font-semibold text-emerald-600 text-xs font-mono">
+                        <td className="px-6 py-3.5 font-semibold text-emerald-600 text-xs tabular-nums">
                           {formatNaira(pmt.amount)}
                         </td>
                         <td className="px-6 py-3.5">
@@ -827,10 +817,10 @@ export default function FinanceDashboardPage() {
                         <td className="px-6 py-3.5 text-slate-600 text-xs">
                           {feeName}
                         </td>
-                        <td className="px-6 py-3.5 text-slate-600 text-xs font-mono">
+                        <td className="px-6 py-3.5 text-slate-600 text-xs font-semibold tabular-nums">
                           {formatNaira(fee.amountDue)}
                         </td>
-                        <td className="px-6 py-3.5 font-semibold text-rose-600 text-xs font-mono">
+                        <td className="px-6 py-3.5 font-semibold text-rose-600 text-xs tabular-nums">
                           {formatNaira(outstanding)}
                         </td>
                         <td className="px-6 py-3.5 text-right text-xs font-medium text-rose-700">

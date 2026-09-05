@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useMemo, useRef, FormEvent, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import { formatAmount, formatNaira } from "@/lib/formatters";
+import { StudentSelector } from "@/components/ui/StudentSelector";
 
 // Types
 type FeeType = "TUITION" | "TRANSPORT" | "UNIFORM" | "EXAM" | "MISCELLANEOUS" | "FEEDING";
@@ -124,18 +126,7 @@ interface PaymentItem {
   paidAt: string;
 }
 
-// Helper currency/number formatters for Nigerian Naira (₦)
-function formatAmount(amount: number | string): string {
-  const num = typeof amount === "number" ? amount : parseFloat(amount) || 0;
-  return num.toLocaleString("en-NG", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
 
-function formatNaira(amount: number | string): string {
-  return `₦${formatAmount(amount)}`;
-}
 
 function FeesTabSync({ onTabChange }: { onTabChange: (tab: "structures" | "student_fees" | "packages") => void }) {
   const searchParams = useSearchParams();
@@ -2130,7 +2121,7 @@ export default function FeesManagementPage() {
               <div className="flex items-center gap-2 text-xs font-bold text-blue-900">
                 <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
                 <span>{selectedStructureIds.length} fee {selectedStructureIds.length === 1 ? "structure" : "structures"} selected</span>
-                <span className="text-blue-700 font-mono">({formatNaira(selectedTotalAmount)})</span>
+                <span className="text-blue-700 font-bold tabular-nums">({formatNaira(selectedTotalAmount)})</span>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -2249,8 +2240,8 @@ export default function FeesManagementPage() {
                               {st.type}
                             </span>
                           </td>
-                          <td className="px-6 py-4 font-extrabold text-slate-900 font-mono">
-                            {formatAmount(st.amount)}
+                          <td className="px-6 py-4 font-bold text-slate-900 tabular-nums">
+                            {formatNaira(st.amount)}
                           </td>
                           <td className="px-6 py-4 text-xs text-slate-600">
                             {st.academicYear} {st.term ? `(${st.term})` : ""}
@@ -2466,13 +2457,13 @@ export default function FeesManagementPage() {
                               >
                                 <span>{it.feeStructure?.name || "Fee"}</span>
                                 {it.feeStructure?.amount && (
-                                  <span className="font-mono text-slate-500 font-bold">₦{formatAmount(it.feeStructure.amount)}</span>
+                                  <span className="text-slate-600 font-semibold tabular-nums">{formatNaira(it.feeStructure.amount)}</span>
                                 )}
                               </span>
                             ))}
                           </div>
                         </td>
-                        <td className="px-6 py-4 font-extrabold text-slate-900 font-mono text-base">
+                        <td className="px-6 py-4 font-bold text-slate-900 text-base tabular-nums">
                           {formatNaira(pkg.totalAmount)}
                         </td>
                         <td className="px-6 py-4 text-right">
@@ -2784,11 +2775,11 @@ export default function FeesManagementPage() {
                               {fee.feeStructure.academicYear} {fee.feeStructure.term ? `(${fee.feeStructure.term})` : ""}
                             </div>
                           </td>
-                          <td className="px-6 py-4 font-extrabold text-slate-900 font-mono">
-                            {formatAmount(fee.amountDue)}
+                          <td className="px-6 py-4 font-bold text-slate-900 tabular-nums">
+                            {formatNaira(fee.amountDue)}
                           </td>
-                          <td className="px-6 py-4 font-extrabold text-emerald-700 font-mono">
-                            <div>{formatAmount(fee.amountPaid)}</div>
+                          <td className="px-6 py-4 font-bold text-emerald-700 tabular-nums">
+                            <div>{formatNaira(fee.amountPaid)}</div>
                             {fee.payments && fee.payments.length > 0 && (
                               <div className="text-[11px] font-sans font-medium text-slate-500 mt-0.5 whitespace-nowrap">
                                 Last paid: {new Date(fee.payments[0].paidAt).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" })}
@@ -3351,26 +3342,18 @@ export default function FeesManagementPage() {
 
               {/* Option 1: Single Student */}
               {assignMode === "single" && (
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
-                    Select Student *
-                  </label>
-                  <select
-                    value={selectedStudentId}
-                    onChange={(e) => {
-                      setSelectedStudentId(e.target.value);
-                      setAssignModalError("");
-                    }}
-                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
-                  >
-                    <option value="">Select a student...</option>
-                    {students.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.firstName} {s.lastName} ({s.studentId})
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <StudentSelector
+                  label="Select Student"
+                  required
+                  students={students}
+                  classes={classes}
+                  value={selectedStudentId}
+                  onChange={(id) => {
+                    setSelectedStudentId(id);
+                    setAssignModalError("");
+                  }}
+                  error={assignModalError}
+                />
               )}
 
               {/* Option 2: Entire Class */}
@@ -3755,19 +3738,19 @@ export default function FeesManagementPage() {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
                     <span className="text-[10px] uppercase font-bold text-slate-500 block">Total Due</span>
-                    <span className="text-sm font-extrabold text-slate-900 font-mono">
+                    <span className="text-sm font-extrabold text-slate-900 tabular-nums">
                       {formatNaira(viewingReceiptsFee.amountDue)}
                     </span>
                   </div>
                   <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
                     <span className="text-[10px] uppercase font-bold text-emerald-700 block">Total Paid</span>
-                    <span className="text-sm font-extrabold text-emerald-700 font-mono">
+                    <span className="text-sm font-extrabold text-emerald-700 tabular-nums">
                       {formatNaira(viewingReceiptsFee.amountPaid)}
                     </span>
                   </div>
                   <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
                     <span className="text-[10px] uppercase font-bold text-amber-800 block">Waived</span>
-                    <span className="text-sm font-extrabold text-amber-800 font-mono">
+                    <span className="text-sm font-extrabold text-amber-800 tabular-nums">
                       {formatNaira(
                         Math.max(
                           0,
@@ -3778,7 +3761,7 @@ export default function FeesManagementPage() {
                   </div>
                   <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
                     <span className="text-[10px] uppercase font-bold text-slate-500 block">Balance</span>
-                    <span className="text-sm font-extrabold text-slate-900 font-mono">
+                    <span className="text-sm font-extrabold text-slate-900 tabular-nums">
                       {formatNaira(0)}
                     </span>
                   </div>
@@ -3787,19 +3770,19 @@ export default function FeesManagementPage() {
                 <div className="grid grid-cols-3 gap-3">
                   <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
                     <span className="text-[10px] uppercase font-bold text-slate-500 block">Total Due</span>
-                    <span className="text-sm font-extrabold text-slate-900 font-mono">
+                    <span className="text-sm font-extrabold text-slate-900 tabular-nums">
                       {formatNaira(viewingReceiptsFee.amountDue)}
                     </span>
                   </div>
                   <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
                     <span className="text-[10px] uppercase font-bold text-emerald-700 block">Total Paid</span>
-                    <span className="text-sm font-extrabold text-emerald-700 font-mono">
+                    <span className="text-sm font-extrabold text-emerald-700 tabular-nums">
                       {formatNaira(viewingReceiptsFee.amountPaid)}
                     </span>
                   </div>
                   <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">
                     <span className="text-[10px] uppercase font-bold text-blue-700 block">Balance</span>
-                    <span className="text-sm font-extrabold text-blue-700 font-mono">
+                    <span className="text-sm font-extrabold text-blue-700 tabular-nums">
                       {formatNaira(
                         Math.max(
                           0,
@@ -3844,7 +3827,7 @@ export default function FeesManagementPage() {
                       </div>
 
                       <div className="flex items-center justify-between sm:justify-end gap-4">
-                        <span className="text-sm font-extrabold text-emerald-700 font-mono">
+                        <span className="text-sm font-extrabold text-emerald-700 tabular-nums">
                           {formatNaira(payment.amount)}
                         </span>
                         <button
@@ -3910,7 +3893,7 @@ export default function FeesManagementPage() {
               <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
                 <div className="flex items-center justify-between text-xs font-bold text-slate-700">
                   <span>Selected Structures ({selectedStructures.length})</span>
-                  <span className="text-blue-700 font-mono font-extrabold text-sm">{formatNaira(selectedTotalAmount)}</span>
+                  <span className="text-blue-700 font-extrabold text-sm tabular-nums">{formatNaira(selectedTotalAmount)}</span>
                 </div>
                 <div className="max-h-36 overflow-y-auto divide-y divide-slate-100 text-xs text-slate-600">
                   {selectedStructures.map((s) => (
@@ -3919,7 +3902,7 @@ export default function FeesManagementPage() {
                         <span className="font-medium text-slate-800">{s.name}</span>
                         <span className="text-[10px] text-slate-400">({s.academicYear})</span>
                       </div>
-                      <span className="font-mono font-semibold text-slate-700">{formatNaira(s.amount)}</span>
+                      <span className="font-semibold text-slate-700 tabular-nums">{formatNaira(s.amount)}</span>
                     </div>
                   ))}
                 </div>
@@ -3969,24 +3952,14 @@ export default function FeesManagementPage() {
 
               {/* Dynamic Target Selection */}
               {multiAssignMode === "single" && (
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
-                    Select Student *
-                  </label>
-                  <select
-                    required
-                    value={multiAssignStudentId}
-                    onChange={(e) => setMultiAssignStudentId(e.target.value)}
-                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
-                  >
-                    <option value="">-- Choose Student --</option>
-                    {students.map((st) => (
-                      <option key={st.id} value={st.id}>
-                        {st.firstName} {st.lastName} ({st.studentId}) {st.admissionLevel ? `• ${st.admissionLevel}` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <StudentSelector
+                  label="Select Student"
+                  required
+                  students={students}
+                  classes={classes}
+                  value={multiAssignStudentId}
+                  onChange={(id) => setMultiAssignStudentId(id)}
+                />
               )}
 
               {multiAssignMode === "class" && (
@@ -4151,7 +4124,7 @@ export default function FeesManagementPage() {
                   <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
                     Select Fee Structures to Bundle *
                   </label>
-                  <span className="text-xs font-mono font-bold text-blue-700">
+                  <span className="text-xs font-bold text-blue-700 tabular-nums">
                     Total: {formatNaira(
                       allStructuresForFilters
                         .filter((s) => createPackageForm.feeStructureIds.includes(s.id))
@@ -4198,7 +4171,7 @@ export default function FeesManagementPage() {
                                 <span className="text-[10px] text-slate-400 ml-1.5">({st.type})</span>
                               </div>
                             </div>
-                            <span className="font-mono font-bold text-slate-800">{formatNaira(st.amount)}</span>
+                            <span className="font-bold text-slate-800 tabular-nums">{formatNaira(st.amount)}</span>
                           </label>
                         );
                       })
@@ -4323,7 +4296,7 @@ export default function FeesManagementPage() {
                   <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
                     Bundled Fee Structures *
                   </label>
-                  <span className="text-xs font-mono font-bold text-blue-700">
+                  <span className="text-xs font-bold text-blue-700 tabular-nums">
                     Total: {formatNaira(
                       allStructuresForFilters
                         .filter((s) => editPackageForm.feeStructureIds.includes(s.id))
@@ -4365,7 +4338,7 @@ export default function FeesManagementPage() {
                               <span className="text-[10px] text-slate-400 ml-1.5">({st.type})</span>
                             </div>
                           </div>
-                          <span className="font-mono font-bold text-slate-800">{formatNaira(st.amount)}</span>
+                          <span className="font-bold text-slate-800 tabular-nums">{formatNaira(st.amount)}</span>
                         </label>
                       );
                     })}
@@ -4471,7 +4444,7 @@ export default function FeesManagementPage() {
               <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
                 <div className="flex items-center justify-between text-xs font-bold text-slate-700">
                   <span>Bundled Fees ({assigningPackage.items.length})</span>
-                  <span className="text-blue-700 font-mono font-extrabold text-sm">{formatNaira(assigningPackage.totalAmount)}</span>
+                  <span className="text-blue-700 font-extrabold text-sm tabular-nums">{formatNaira(assigningPackage.totalAmount)}</span>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {assigningPackage.items.map((it) => (
@@ -4481,7 +4454,7 @@ export default function FeesManagementPage() {
                     >
                       <span>{it.feeStructure?.name || "Fee"}</span>
                       {it.feeStructure?.amount && (
-                        <span className="font-mono text-blue-600 font-bold">₦{formatAmount(it.feeStructure.amount)}</span>
+                        <span className="text-blue-600 font-bold tabular-nums">{formatNaira(it.feeStructure.amount)}</span>
                       )}
                     </span>
                   ))}
@@ -4532,24 +4505,14 @@ export default function FeesManagementPage() {
 
               {/* Dynamic Target Selection */}
               {assignPackageMode === "single" && (
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
-                    Select Student *
-                  </label>
-                  <select
-                    required
-                    value={assignPackageStudentId}
-                    onChange={(e) => setAssignPackageStudentId(e.target.value)}
-                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
-                  >
-                    <option value="">-- Choose Student --</option>
-                    {students.map((st) => (
-                      <option key={st.id} value={st.id}>
-                        {st.firstName} {st.lastName} ({st.studentId}) {st.admissionLevel ? `• ${st.admissionLevel}` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <StudentSelector
+                  label="Select Student"
+                  required
+                  students={students}
+                  classes={classes}
+                  value={assignPackageStudentId}
+                  onChange={(id) => setAssignPackageStudentId(id)}
+                />
               )}
 
               {assignPackageMode === "class" && (
@@ -4654,24 +4617,15 @@ export default function FeesManagementPage() {
               )}
 
               {/* Student Selector */}
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
-                  Select Student *
-                </label>
-                <select
-                  required
-                  value={payPackageStudentId}
-                  onChange={(e) => handlePackageStudentSelect(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
-                >
-                  <option value="">-- Choose Student Assigned to this Package --</option>
-                  {students.map((st) => (
-                    <option key={st.id} value={st.id}>
-                      {st.firstName} {st.lastName} ({st.studentId}) {st.admissionLevel ? "• " + st.admissionLevel : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <StudentSelector
+                label="Select Student"
+                required
+                placeholder="Choose student assigned to this package..."
+                students={students}
+                classes={classes}
+                value={payPackageStudentId}
+                onChange={(id) => handlePackageStudentSelect(id)}
+              />
 
               {loadingPackageBalances && (
                 <div className="py-8 text-center text-slate-400 text-xs">
@@ -4686,20 +4640,20 @@ export default function FeesManagementPage() {
                   <div className="grid grid-cols-3 gap-3">
                     <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
                       <span className="text-[10px] uppercase font-bold text-slate-500 block">Total Due</span>
-                      <span className="text-sm font-extrabold text-slate-900 font-mono">
-                        ₦{formatAmount(packageBalanceData.totalDue)}
+                      <span className="text-sm font-extrabold text-slate-900 tabular-nums">
+                        {formatNaira(packageBalanceData.totalDue)}
                       </span>
                     </div>
                     <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
                       <span className="text-[10px] uppercase font-bold text-emerald-700 block">Total Paid</span>
-                      <span className="text-sm font-extrabold text-emerald-700 font-mono">
-                        ₦{formatAmount(packageBalanceData.totalPaid)}
+                      <span className="text-sm font-extrabold text-emerald-700 tabular-nums">
+                        {formatNaira(packageBalanceData.totalPaid)}
                       </span>
                     </div>
                     <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">
                       <span className="text-[10px] uppercase font-bold text-blue-700 block">Total Remaining</span>
-                      <span className="text-sm font-extrabold text-blue-700 font-mono">
-                        ₦{formatAmount(packageBalanceData.totalRemaining)}
+                      <span className="text-sm font-extrabold text-blue-700 tabular-nums">
+                        {formatNaira(packageBalanceData.totalRemaining)}
                       </span>
                     </div>
                   </div>
@@ -4726,7 +4680,7 @@ export default function FeesManagementPage() {
                             }}
                             className="text-[11px] text-blue-600 hover:text-blue-800 font-semibold cursor-pointer"
                           >
-                            Pay Full Balance (₦{formatAmount(packageBalanceData.totalRemaining)})
+                            Pay Full Balance ({formatNaira(packageBalanceData.totalRemaining)})
                           </button>
                         )}
                       </div>
@@ -4737,7 +4691,7 @@ export default function FeesManagementPage() {
                         required
                         value={packagePaymentAmount}
                         onChange={(e) => handlePackagePaymentAmountChange(e.target.value)}
-                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white tabular-nums"
                       />
                     </div>
 
@@ -4836,12 +4790,12 @@ export default function FeesManagementPage() {
                                     )}
                                   </div>
                                   {!isSettled && !isUnassigned && !isOnlyActiveComp && (
-                                    <div className="text-[11px] text-slate-500 font-mono">
-                                      Due: ₦{formatAmount(comp.amountDue)} • Paid: ₦{formatAmount(comp.amountPaid)} • Remaining: <span className="font-bold text-slate-700">₦{formatAmount(comp.remainingBalance)}</span>
+                                    <div className="text-[11px] text-slate-500 tabular-nums">
+                                      Due: {formatNaira(comp.amountDue)} • Paid: {formatNaira(comp.amountPaid)} • Remaining: <span className="font-bold text-slate-700">{formatNaira(comp.remainingBalance)}</span>
                                     </div>
                                   )}
                                   {isUnassigned && (
-                                    <div className="text-[11px] text-slate-500 font-mono text-amber-700 font-medium">
+                                    <div className="text-[11px] text-slate-500 text-amber-700 font-medium">
                                       Unassigned to student — assign component individually first
                                     </div>
                                   )}
@@ -4854,15 +4808,15 @@ export default function FeesManagementPage() {
                                     </span>
                                   ) : isSettled ? (
                                     <span className="text-[11px] font-bold text-slate-400 uppercase bg-slate-100 px-2 py-1 rounded-md">
-                                      {comp.status === "WAIVED" ? "Waived" : "Settled (₦0)"}
+                                      {comp.status === "WAIVED" ? "Waived" : "Settled (₦0.00)"}
                                     </span>
                                   ) : isFullSettlement ? (
-                                    <span className="text-xs font-mono font-bold text-emerald-700">
-                                      +₦{formatAmount(comp.remainingBalance)}
+                                    <span className="text-xs font-bold text-emerald-700 tabular-nums">
+                                      +{formatNaira(comp.remainingBalance)}
                                     </span>
                                   ) : (
                                     <div className="flex items-center gap-1">
-                                      <span className="text-xs font-bold text-slate-500 font-mono">₦</span>
+                                      <span className="text-xs font-bold text-slate-500">₦</span>
                                       <input
                                         type="number"
                                         step="0.01"
@@ -4877,7 +4831,7 @@ export default function FeesManagementPage() {
                                           });
                                         }}
                                         placeholder="0.00"
-                                        className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white text-right"
+                                        className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white text-right tabular-nums"
                                       />
                                     </div>
                                   )}
@@ -4901,20 +4855,20 @@ export default function FeesManagementPage() {
                             ) : currentAllocatedSum > 0 && variance > 0.009 ? (
                               <span className="text-[11px] font-bold text-rose-600">
                                 {currentAllocatedSum < parsedTotal 
-                                  ? `Mismatched: ₦${formatAmount(parsedTotal - currentAllocatedSum)} remaining`
-                                  : `Mismatched: ₦${formatAmount(currentAllocatedSum - parsedTotal)} over-allocated`}
+                                  ? `Mismatched: ${formatNaira(parsedTotal - currentAllocatedSum)} remaining`
+                                  : `Mismatched: ${formatNaira(currentAllocatedSum - parsedTotal)} over-allocated`}
                               </span>
                             ) : null}
                           </div>
                           <div>
-                            <span className={`text-[11px] font-mono ${
+                            <span className={`text-[11px] tabular-nums ${
                               currentAllocatedSum > 0 && variance > 0.009
                                 ? "font-bold text-rose-600"
                                 : isFullSettlement || (currentAllocatedSum > 0 && variance <= 0.009)
                                 ? "font-semibold text-emerald-700"
                                 : "font-medium text-slate-500"
                             }`}>
-                              ₦{formatAmount(isFullSettlement ? parsedTotal : currentAllocatedSum)} of ₦{formatAmount(parsedTotal)} allocated
+                              {formatNaira(isFullSettlement ? parsedTotal : currentAllocatedSum)} of {formatNaira(parsedTotal)} allocated
                             </span>
                           </div>
                         </div>
@@ -5046,8 +5000,8 @@ export default function FeesManagementPage() {
                           <td className="px-4 py-3 font-mono font-bold text-slate-700">
                             {pmt.receiptNumber}
                           </td>
-                          <td className="px-4 py-3 font-extrabold text-slate-900 font-mono">
-                            ₦{formatAmount(pmt.amount)}
+                          <td className="px-4 py-3 font-bold text-slate-900 tabular-nums">
+                            {formatNaira(pmt.amount)}
                           </td>
                           <td className="px-4 py-3">
                             <span className="capitalize font-semibold text-slate-700">{pmt.method.replace('_', ' ')}</span>

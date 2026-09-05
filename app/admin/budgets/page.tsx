@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { formatNaira } from "@/lib/formatters";
 
 type BudgetItem = {
   id: string;
@@ -220,14 +221,6 @@ export default function BudgetsPage() {
     }
   };
 
-  const formatNaira = (valStr: string) => {
-    const num = parseFloat(valStr) || 0;
-    return `₦${num.toLocaleString("en-NG", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}`;
-  };
-
   const formatDateTime = (isoStr: string) => {
     try {
       const d = new Date(isoStr);
@@ -360,7 +353,7 @@ export default function BudgetsPage() {
                         {item.term}
                       </span>
                     </td>
-                    <td className="px-6 py-4 font-mono font-bold text-slate-900 whitespace-nowrap">
+                    <td className="px-6 py-4 font-bold text-slate-900 whitespace-nowrap tabular-nums">
                       {formatNaira(item.amount)}
                     </td>
                     <td className="px-6 py-4 text-xs text-slate-500 whitespace-nowrap">
@@ -621,7 +614,7 @@ export default function BudgetsPage() {
                             </span>
                           </div>
 
-                          <div className="text-sm font-mono font-bold text-slate-900">
+                          <div className="text-sm font-bold text-slate-900 tabular-nums">
                             {isCreation ? (
                               <span className="text-indigo-600">{formatNaira(log.newAmount)}</span>
                             ) : (

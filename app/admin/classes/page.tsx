@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import { StudentSelector } from "@/components/ui/StudentSelector";
 
 interface Teacher {
   id: string;
@@ -523,29 +524,21 @@ export default function ClassesPage() {
                   </div>
 
                   {/* Enroll Student Dropdown Control */}
-                  <div className="flex items-center gap-2">
-                    <select
-                      value={selectedStudentToEnroll}
-                      onChange={(e) => setSelectedStudentToEnroll(e.target.value)}
-                      className="px-3 py-2 border border-slate-200 rounded-xl text-xs text-slate-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 font-medium max-w-xs"
-                    >
-                      <option value="">Select student to enroll...</option>
-                      {allSchoolStudents.map((st) => {
-                        const isCurrent = enrolledStudents.some((e) => e.id === st.id);
-                        if (isCurrent) return null;
-
-                        return (
-                          <option key={st.id} value={st.id}>
-                            {st.firstName} {st.lastName} ({st.studentId})
-                          </option>
-                        );
-                      })}
-                    </select>
+                  <div className="flex items-center gap-2 max-w-md w-full">
+                    <div className="flex-1">
+                      <StudentSelector
+                        students={allSchoolStudents}
+                        value={selectedStudentToEnroll}
+                        onChange={(id) => setSelectedStudentToEnroll(id)}
+                        excludeStudentIds={enrolledStudents.map((e) => e.id)}
+                        placeholder="Select student to enroll..."
+                      />
+                    </div>
 
                     <button
                       onClick={() => handleEnrollStudent(cls.id)}
                       disabled={!selectedStudentToEnroll || enrolling}
-                      className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition-colors disabled:opacity-50 flex items-center gap-1.5 cursor-pointer shrink-0"
+                      className="px-3.5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition-colors disabled:opacity-50 flex items-center gap-1.5 cursor-pointer shrink-0"
                     >
                       {enrolling ? "Enrolling..." : "Enroll Student"}
                     </button>
