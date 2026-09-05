@@ -279,7 +279,7 @@ export default function BudgetsPage() {
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
             Total Allocated Budget
           </p>
-          <p className="text-2xl font-black text-slate-900 mt-2 font-mono">
+          <p className="text-2xl font-bold text-slate-900 mt-2">
             {formatNaira(totalAmount)}
           </p>
           <p className="text-xs text-slate-400 mt-1">Across all recorded sessions</p>
@@ -289,7 +289,7 @@ export default function BudgetsPage() {
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
             Budgeted Sessions
           </p>
-          <p className="text-2xl font-black text-slate-900 mt-2 font-mono">
+          <p className="text-2xl font-bold text-slate-900 mt-2">
             {Array.from(new Set(budgets.map((b) => b.academicYear))).length}
           </p>
           <p className="text-xs text-slate-400 mt-1">Distinct academic years</p>
@@ -299,7 +299,7 @@ export default function BudgetsPage() {
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
             Budgeted Terms
           </p>
-          <p className="text-2xl font-black text-slate-900 mt-2 font-mono">
+          <p className="text-2xl font-bold text-slate-900 mt-2">
             {budgets.length}
           </p>
           <p className="text-xs text-slate-400 mt-1">Active term allocations</p>
