@@ -120,26 +120,37 @@ export const GET = withAuth(
       for (const item of packagePayment.package?.items || []) {
         const matchingFee = studentPackageFees.find((f) => f.feeStructureId === item.feeStructureId);
         if (!matchingFee || matchingFee.status === "WAIVED") {
-          // Unassigned or waived components contribute 0 to outstanding balance
+          // Unassigned or waived components contribute 0 to outstanding balance unconditionally
           continue;
         }
 
         const feeAmountDue = new Prisma.Decimal(matchingFee.amountDue);
-        let cumulativePaidForFee = new Prisma.Decimal(0);
+        const currentAmountPaid = new Prisma.Decimal(matchingFee.amountPaid);
+        let paymentsAfterThisTx = new Prisma.Decimal(0);
+        const thisFeePayment = packagePayment.payments.find((p) => p.feeId === matchingFee.id);
+        const refIdForTiebreak = thisFeePayment?.id || packagePayment.id;
 
         for (const p of matchingFee.payments) {
           const pTime = new Date(p.paidAt).getTime();
-          // Include this payment if it belongs to this PackagePayment, or occurred strictly before it
-          const belongsToThisPackagePayment = p.packagePaymentId === packagePayment.id;
-          const isPrior = pTime < targetTransactionTime || (pTime === targetTransactionTime && p.id <= packagePayment.id);
+          // Exclude payments that belong to this packagePayment
+          if (p.packagePaymentId === packagePayment.id || p.id === thisFeePayment?.id) {
+            continue;
+          }
+          // A payment occurred strictly after this transaction if its timestamp is greater,
+          // or if same timestamp and cuid is greater (cuid tiebreak)
+          const isStrictlyAfter =
+            pTime > targetTransactionTime ||
+            (pTime === targetTransactionTime && p.id > refIdForTiebreak);
 
-          if (belongsToThisPackagePayment || isPrior) {
-            cumulativePaidForFee = cumulativePaidForFee.add(new Prisma.Decimal(p.amount));
+          if (isStrictlyAfter) {
+            paymentsAfterThisTx = paymentsAfterThisTx.add(new Prisma.Decimal(p.amount));
           }
         }
 
-        const feeRemaining = feeAmountDue.greaterThan(cumulativePaidForFee)
-          ? feeAmountDue.sub(cumulativePaidForFee)
+        // Point-in-time paid as of this transaction
+        const pointInTimePaid = currentAmountPaid.sub(paymentsAfterThisTx);
+        const feeRemaining = feeAmountDue.greaterThan(pointInTimePaid)
+          ? feeAmountDue.sub(pointInTimePaid)
           : new Prisma.Decimal(0);
 
         netRemainingPackageBalance = netRemainingPackageBalance.add(feeRemaining);
@@ -159,96 +170,125 @@ export const GET = withAuth(
       const page = pdfDoc.addPage([595.28, 841.89]); // A4 portrait
       const { width, height } = page.getSize();
 
+      // Brand Colors
+      const colorNavy = rgb(0.08, 0.18, 0.36); // #142e5c
+      const colorEmerald = rgb(0.02, 0.59, 0.41); // #059669
+      const colorMuted = rgb(0.39, 0.45, 0.55); // #64748b
+      const colorBorder = rgb(0.88, 0.91, 0.94); // #e2e8f0
+      const colorCardBg = rgb(0.97, 0.98, 0.99); // #f8fafc
+      const colorDarkText = rgb(0.06, 0.09, 0.16); // #0f172a
+
       const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
       const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-      const colorNavy = rgb(0.08, 0.18, 0.36);
-      const colorEmerald = rgb(0.05, 0.55, 0.35);
-      const colorDarkText = rgb(0.12, 0.15, 0.2);
-      const colorMuted = rgb(0.4, 0.45, 0.55);
-      const colorBorder = rgb(0.85, 0.88, 0.92);
-      const colorCardBg = rgb(0.96, 0.97, 0.99);
+      let y = height - 50;
 
-      // 1. Top Decorative Bar
-      page.drawRectangle({
-        x: 0,
-        y: height - 8,
-        width: width,
-        height: 8,
-        color: colorNavy,
-      });
-
-      // 2. School Header
-      const schoolName = (packagePayment.school.name || "EduPulse Academy").toUpperCase();
-      page.drawText(schoolName, {
-        x: 40,
-        y: height - 45,
-        size: 16,
-        font: fontBold,
-        color: colorNavy,
-      });
-
-      const schoolAddress = packagePayment.school.address || "Official Student Billing Receipt";
-      page.drawText(schoolAddress, {
-        x: 40,
-        y: height - 60,
-        size: 9,
-        font: fontRegular,
-        color: colorMuted,
-      });
-
-      // Badge: Official Package Receipt
-      page.drawRectangle({
-        x: width - 210,
-        y: height - 65,
-        width: 170,
-        height: 28,
-        color: colorCardBg,
-        borderColor: colorNavy,
-        borderWidth: 1,
-      });
-      page.drawText("PACKAGE PAYMENT RECEIPT", {
-        x: width - 200,
-        y: height - 53,
-        size: 9,
-        font: fontBold,
-        color: colorNavy,
-      });
-
-      // Divider
-      page.drawLine({
-        start: { x: 40, y: height - 78 },
-        end: { x: width - 40, y: height - 78 },
-        thickness: 1,
-        color: colorBorder,
-      });
-
-      // 3. Receipt Metadata Box
-      let y = height - 98;
+      // 1. Header Banner
       page.drawRectangle({
         x: 40,
         y: y - 55,
         width: width - 80,
         height: 65,
+        color: colorNavy,
+      });
+
+      // School Name
+      const schoolName = packagePayment.school.name.toUpperCase();
+      page.drawText(schoolName, {
+        x: 55,
+        y: y - 20,
+        size: 15,
+        font: fontBold,
+        color: rgb(1, 1, 1),
+      });
+
+      page.drawText("OFFICIAL FEE PACKAGE PAYMENT RECEIPT", {
+        x: 55,
+        y: y - 38,
+        size: 9,
+        font: fontRegular,
+        color: rgb(0.8, 0.88, 0.98),
+      });
+
+      // 2. Receipt Number & Badge Box
+      y = y - 80;
+      page.drawRectangle({
+        x: 40,
+        y: y - 35,
+        width: width - 80,
+        height: 38,
         color: colorCardBg,
         borderColor: colorBorder,
         borderWidth: 1,
       });
 
-      // Row 1 Metadata
-      page.drawText("Receipt Number:", { x: 55, y: y - 10, size: 9, font: fontRegular, color: colorMuted });
-      page.drawText(packagePayment.receiptNumber, { x: 145, y: y - 10, size: 9, font: fontBold, color: colorNavy });
+      page.drawText("RECEIPT NUMBER", {
+        x: 55,
+        y: y - 14,
+        size: 7.5,
+        font: fontBold,
+        color: colorMuted,
+      });
 
-      page.drawText("Date & Time:", { x: 330, y: y - 10, size: 9, font: fontRegular, color: colorMuted });
+      page.drawText(packagePayment.receiptNumber, {
+        x: 55,
+        y: y - 28,
+        size: 11,
+        font: fontBold,
+        color: colorNavy,
+      });
+
+      // Verification Badge Right
+      page.drawRectangle({
+        x: width - 150,
+        y: y - 28,
+        width: 95,
+        height: 20,
+        color: rgb(0.9, 0.98, 0.94),
+        borderColor: colorEmerald,
+        borderWidth: 1,
+      });
+
+      page.drawText("VERIFIED PAID", {
+        x: width - 135,
+        y: y - 21,
+        size: 8,
+        font: fontBold,
+        color: colorEmerald,
+      });
+
+      // 3. Metadata Grid (3 Rows)
+      y = y - 55;
+      page.drawRectangle({
+        x: 40,
+        y: y - 55,
+        width: width - 80,
+        height: 60,
+        color: rgb(1, 1, 1),
+        borderColor: colorBorder,
+        borderWidth: 1,
+      });
+
+      // Row 1 Metadata
+      page.drawText("Academic Term:", { x: 55, y: y - 12, size: 9, font: fontRegular, color: colorMuted });
+      page.drawText(`${packagePayment.package?.academicYear || "N/A"} | ${packagePayment.package?.term || "N/A"}`, {
+        x: 145,
+        y: y - 12,
+        size: 9,
+        font: fontBold,
+        color: colorDarkText,
+      });
+
+      page.drawText("Date Paid:", { x: 330, y: y - 12, size: 9, font: fontRegular, color: colorMuted });
       page.drawText(
-        new Date(packagePayment.paidAt).toLocaleDateString("en-NG", {
+        new Date(packagePayment.paidAt).toLocaleDateString("en-US", {
           year: "numeric",
           month: "short",
           day: "numeric",
           hour: "2-digit",
           minute: "2-digit",
         }),
-        { x: 400, y: y - 10, size: 9, font: fontBold, color: colorDarkText }
+        { x: 400, y: y - 12, size: 9, font: fontBold, color: colorDarkText }
       );
 
       // Row 2 Metadata
@@ -328,9 +368,9 @@ export const GET = withAuth(
       });
 
       page.drawText("Fee Component", { x: 50, y: y - 12, size: 8, font: fontBold, color: colorNavy });
-      page.drawText("Type", { x: 210, y: y - 12, size: 8, font: fontBold, color: colorNavy });
-      page.drawText("Component Receipt", { x: 280, y: y - 12, size: 8, font: fontBold, color: colorNavy });
-      page.drawText("Status / Note", { x: 400, y: y - 12, size: 8, font: fontBold, color: colorNavy });
+      page.drawText("Type", { x: 205, y: y - 12, size: 8, font: fontBold, color: colorNavy });
+      page.drawText("Component Receipt", { x: 270, y: y - 12, size: 8, font: fontBold, color: colorNavy });
+      page.drawText("Status / Note", { x: 380, y: y - 12, size: 8, font: fontBold, color: colorNavy });
       page.drawText("Allocated (NGN)", { x: 480, y: y - 12, size: 8, font: fontBold, color: colorNavy });
 
       y -= 20;
@@ -352,10 +392,10 @@ export const GET = withAuth(
           borderWidth: 0.5,
         });
 
-        page.drawText(structName.substring(0, 26), { x: 50, y: y - 13, size: 8, font: fontRegular, color: colorDarkText });
-        page.drawText(structType, { x: 210, y: y - 13, size: 8, font: fontRegular, color: colorMuted });
-        page.drawText(compReceipt, { x: 280, y: y - 13, size: 8, font: fontBold, color: colorDarkText });
-        page.drawText("Payment Allocated", { x: 400, y: y - 13, size: 8, font: fontRegular, color: colorEmerald });
+        page.drawText(structName.substring(0, 24), { x: 50, y: y - 13, size: 8, font: fontRegular, color: colorDarkText });
+        page.drawText(structType, { x: 205, y: y - 13, size: 8, font: fontRegular, color: colorMuted });
+        page.drawText(compReceipt, { x: 270, y: y - 13, size: 8, font: fontBold, color: colorDarkText });
+        page.drawText("Payment Allocated", { x: 380, y: y - 13, size: 8, font: fontRegular, color: colorEmerald });
         page.drawText(compAmount, { x: 480, y: y - 13, size: 8, font: fontBold, color: colorEmerald });
 
         y -= 20;
@@ -378,15 +418,15 @@ export const GET = withAuth(
 
             const matchingFee = studentPackageFees.find((f) => f.feeStructureId === item.feeStructureId);
             const statusNote = !matchingFee
-              ? "Unassigned (Nil)"
+              ? "Unassigned"
               : matchingFee.status === "WAIVED"
-              ? "Waived (Nil)"
-              : "Previously Settled / Nil";
+              ? "Waived"
+              : "Previously Settled";
 
-            page.drawText(item.feeStructure.name.substring(0, 26), { x: 50, y: y - 13, size: 8, font: fontRegular, color: colorMuted });
-            page.drawText(item.feeStructure.type, { x: 210, y: y - 13, size: 8, font: fontRegular, color: colorMuted });
-            page.drawText("-", { x: 280, y: y - 13, size: 8, font: fontRegular, color: colorMuted });
-            page.drawText(statusNote, { x: 400, y: y - 13, size: 8, font: fontRegular, color: colorMuted });
+            page.drawText(item.feeStructure.name.substring(0, 24), { x: 50, y: y - 13, size: 8, font: fontRegular, color: colorMuted });
+            page.drawText(item.feeStructure.type, { x: 205, y: y - 13, size: 8, font: fontRegular, color: colorMuted });
+            page.drawText("N/A", { x: 270, y: y - 13, size: 8, font: fontRegular, color: colorMuted });
+            page.drawText(statusNote, { x: 380, y: y - 13, size: 8, font: fontRegular, color: colorMuted });
             page.drawText("NGN 0.00", { x: 480, y: y - 13, size: 8, font: fontRegular, color: colorMuted });
 
             y -= 20;

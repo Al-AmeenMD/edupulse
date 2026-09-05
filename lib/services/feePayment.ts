@@ -71,6 +71,53 @@ export function validatePaymentMethod(method: string): string {
 }
 
 /**
+ * Resolves the next available receipt sequence number for a school and year
+ * by finding the highest existing receipt number matching the pattern.
+ * Gap-safe: if earlier records were deleted, it continues after the highest existing number.
+ * Note: Lexicographic descending sort relies on 5-digit zero-padding (safe up to 99,999 receipts per school per year).
+ */
+export async function getNextPackageReceiptNumber(
+  tx: Prisma.TransactionClient,
+  schoolId: string,
+  prefix: string,
+  year: string
+): Promise<string> {
+  const pattern = `PKG/RCP/${prefix}/${year}/`;
+  const latest = await tx.packagePayment.findFirst({
+    where: {
+      schoolId,
+      receiptNumber: { startsWith: pattern },
+    },
+    orderBy: { receiptNumber: "desc" },
+    select: { receiptNumber: true },
+  });
+
+  const lastSeq = latest ? parseInt(latest.receiptNumber.split("/").pop() || "0", 10) : 0;
+  const nextSeq = (isNaN(lastSeq) ? 0 : lastSeq) + 1;
+  return `PKG/RCP/${prefix}/${year}/${String(nextSeq).padStart(5, "0")}`;
+}
+
+export async function getNextPaymentSequenceBase(
+  tx: Prisma.TransactionClient,
+  schoolId: string,
+  prefix: string,
+  year: string
+): Promise<number> {
+  const pattern = `RCP/${prefix}/${year}/`;
+  const latest = await tx.payment.findFirst({
+    where: {
+      schoolId,
+      receiptNumber: { startsWith: pattern },
+    },
+    orderBy: { receiptNumber: "desc" },
+    select: { receiptNumber: true },
+  });
+
+  const lastSeq = latest ? parseInt(latest.receiptNumber.split("/").pop() || "0", 10) : 0;
+  return isNaN(lastSeq) ? 0 : lastSeq;
+}
+
+/**
  * Core atomic single-fee payment handler.
  * Can be executed as a standalone single payment or as a sub-operation within a package payment.
  */
@@ -152,8 +199,8 @@ export async function recordSingleFeePaymentCore(
     });
     const prefix = (school?.studentIdPrefix || "SCH").toUpperCase();
     const year = new Date().getFullYear().toString();
-    const currentCount = await tx.payment.count({ where: { schoolId } });
-    const seq = currentCount + 1;
+    const baseSeq = await getNextPaymentSequenceBase(tx, schoolId, prefix, year);
+    const seq = baseSeq + 1;
     receiptNumber = `RCP/${prefix}/${year}/${String(seq).padStart(5, "0")}`;
   }
 
@@ -420,10 +467,8 @@ export async function recordPackagePayment(
   const positiveAllocations = resolvedAllocations.filter((a) => a.amount.greaterThan(0));
 
   const runWithTransaction = async (tx: Prisma.TransactionClient): Promise<PackagePaymentExecutionResult> => {
-    // 1. Generate PackagePayment.receiptNumber
-    const pkgCount = await tx.packagePayment.count({ where: { schoolId } });
-    const pkgSeq = pkgCount + 1;
-    const pkgReceiptNumber = `PKG/RCP/${prefix}/${year}/${String(pkgSeq).padStart(5, "0")}`;
+    // 1. Generate PackagePayment.receiptNumber (gap-safe MAX + 1)
+    const pkgReceiptNumber = await getNextPackageReceiptNumber(tx, schoolId, prefix, year);
 
     // 2. Create PackagePayment header
     const packagePayment = await tx.packagePayment.create({
@@ -440,15 +485,15 @@ export async function recordPackagePayment(
       },
     });
 
-    // 3. Create component Payment rows against existing assigned fees
-    const basePaymentCount = await tx.payment.count({ where: { schoolId } });
+    // 3. Create component Payment rows against existing assigned fees (gap-safe MAX + 1)
+    const baseSeq = await getNextPaymentSequenceBase(tx, schoolId, prefix, year);
     const createdPayments: Payment[] = [];
     let componentsSettled = 0;
     let componentsPartial = 0;
 
     for (let i = 0; i < positiveAllocations.length; i++) {
       const alloc = positiveAllocations[i];
-      const compSeq = basePaymentCount + 1 + i;
+      const compSeq = baseSeq + 1 + i;
       const compReceiptNumber = `RCP/${prefix}/${year}/${String(compSeq).padStart(5, "0")}`;
 
       const { payment, updatedFee } = await recordSingleFeePaymentCore(
