@@ -25,6 +25,7 @@ export const POST = withAuth(
         feeStructureId?: string;
         feeStructureIds?: string[];
         studentId?: string;
+        studentIds?: string[];
         classId?: string;
         admissionLevel?: string;
       };
@@ -32,6 +33,7 @@ export const POST = withAuth(
       const feeStructureId = body.feeStructureId?.trim();
       const feeStructureIds = body.feeStructureIds;
       const studentId = body.studentId?.trim();
+      const studentIds = Array.isArray(body.studentIds) ? body.studentIds.filter((id): id is string => typeof id === "string" && Boolean(id.trim())) : undefined;
       const classId = body.classId?.trim();
       const admissionLevel = body.admissionLevel?.trim();
 
@@ -45,9 +47,9 @@ export const POST = withAuth(
         );
       }
 
-      if (!studentId && !classId && !admissionLevel) {
+      if (!studentId && (!studentIds || studentIds.length === 0) && !classId && !admissionLevel) {
         return NextResponse.json(
-          { error: "Either studentId, classId, or admissionLevel is required" },
+          { error: "Either studentId, studentIds, classId, or admissionLevel is required" },
           { status: 400 }
         );
       }
@@ -56,6 +58,7 @@ export const POST = withAuth(
         schoolId,
         feeStructureIds: structureIds,
         studentId,
+        studentIds,
         classId,
         admissionLevel,
       });
@@ -72,7 +75,7 @@ export const POST = withAuth(
       // -----------------------------------------------------------------
       const singleResult = summary.results[0];
 
-      if (studentId && !classId && !admissionLevel) {
+      if (studentId && !classId && !admissionLevel && (!studentIds || studentIds.length === 0)) {
         if (summary.totalFeesCreated === 0 && summary.totalFeesSkipped > 0) {
           return NextResponse.json(
             { error: "Fee already assigned to this student for this fee structure" },
@@ -80,6 +83,26 @@ export const POST = withAuth(
           );
         }
         return NextResponse.json({ data: singleResult?.fees[0] }, { status: 201 });
+      }
+
+      if (summary.targetMode === "multiple") {
+        if (summary.totalFeesCreated === 0 && summary.totalFeesSkipped > 0) {
+          return NextResponse.json(
+            { error: "Fee already assigned to all selected students for this fee structure" },
+            { status: 409 }
+          );
+        }
+        return NextResponse.json(
+          {
+            data: singleResult?.fees || [],
+            summary: {
+              totalStudents: summary.totalTargetStudents,
+              assigned: summary.totalFeesCreated,
+              skipped: summary.totalFeesSkipped,
+            },
+          },
+          { status: 201 }
+        );
       }
 
       if (classId && !admissionLevel) {

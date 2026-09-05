@@ -52,11 +52,13 @@ export const POST = withAuth(
 
       const body = (await req.json()) as {
         studentId?: string;
+        studentIds?: string[];
         classId?: string;
         admissionLevel?: string;
       };
 
       const studentId = body.studentId?.trim();
+      const studentIds = Array.isArray(body.studentIds) ? body.studentIds.filter((id): id is string => typeof id === "string" && Boolean(id.trim())) : undefined;
       const classId = body.classId?.trim();
       const admissionLevel = body.admissionLevel?.trim();
 
@@ -66,6 +68,7 @@ export const POST = withAuth(
         schoolId,
         feeStructureIds,
         studentId,
+        studentIds,
         classId,
         admissionLevel,
       });

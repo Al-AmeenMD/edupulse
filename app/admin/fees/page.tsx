@@ -168,10 +168,11 @@ export default function FeesManagementPage() {
 
   // Assign Fee Modal State
   const [assigningStructure, setAssigningStructure] = useState<FeeStructureItem | null>(null);
-  const [assignMode, setAssignMode] = useState<"single" | "class" | "admissionLevel">("single");
+  const [assignMode, setAssignMode] = useState<"single" | "multiple" | "class" | "admissionLevel">("single");
   const [students, setStudents] = useState<StudentItem[]>([]);
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [selectedStudentId, setSelectedStudentId] = useState("");
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [selectedClassId, setSelectedClassId] = useState("");
   const [selectedAdmissionLevel, setSelectedAdmissionLevel] = useState("");
   const [assigningFee, setAssigningFee] = useState(false);
@@ -181,8 +182,9 @@ export default function FeesManagementPage() {
   // Multi-Select Fee Structures State
   const [selectedStructureIds, setSelectedStructureIds] = useState<string[]>([]);
   const [isMultiAssignOpen, setIsMultiAssignOpen] = useState(false);
-  const [multiAssignMode, setMultiAssignMode] = useState<"single" | "class" | "admissionLevel">("single");
+  const [multiAssignMode, setMultiAssignMode] = useState<"single" | "multiple" | "class" | "admissionLevel">("single");
   const [multiAssignStudentId, setMultiAssignStudentId] = useState("");
+  const [multiAssignStudentIds, setMultiAssignStudentIds] = useState<string[]>([]);
   const [multiAssignClassId, setMultiAssignClassId] = useState("");
   const [multiAssignAdmissionLevel, setMultiAssignAdmissionLevel] = useState("");
   const [submittingMultiAssign, setSubmittingMultiAssign] = useState(false);
@@ -221,8 +223,9 @@ export default function FeesManagementPage() {
 
   // Assign Package State
   const [assigningPackage, setAssigningPackage] = useState<FeePackageItem | null>(null);
-  const [assignPackageMode, setAssignPackageMode] = useState<"single" | "class" | "admissionLevel">("single");
+  const [assignPackageMode, setAssignPackageMode] = useState<"single" | "multiple" | "class" | "admissionLevel">("single");
   const [assignPackageStudentId, setAssignPackageStudentId] = useState("");
+  const [assignPackageStudentIds, setAssignPackageStudentIds] = useState<string[]>([]);
   const [assignPackageClassId, setAssignPackageClassId] = useState("");
   const [assignPackageAdmissionLevel, setAssignPackageAdmissionLevel] = useState("");
   const [submittingAssignPackage, setSubmittingAssignPackage] = useState(false);
@@ -1115,7 +1118,7 @@ export default function FeesManagementPage() {
     }
   }
 
-  // Handle Assign Fee (Single, Class, or Admission Level)
+  // Handle Assign Fee (Single, Multiple, Class, or Admission Level)
   async function handleAssignFeeSubmit(e: FormEvent) {
     e.preventDefault();
     if (!assigningStructure) return;
@@ -1126,6 +1129,10 @@ export default function FeesManagementPage() {
 
     if (assignMode === "single" && !selectedStudentId) {
       setAssignModalError("Please select a student to assign this fee.");
+      return;
+    }
+    if (assignMode === "multiple" && selectedStudentIds.length === 0) {
+      setAssignModalError("Please select at least one student to assign this fee.");
       return;
     }
     if (assignMode === "class" && !selectedClassId) {
@@ -1146,6 +1153,8 @@ export default function FeesManagementPage() {
         feeStructureId: assigningStructure.id,
         ...(assignMode === "single"
           ? { studentId: selectedStudentId }
+          : assignMode === "multiple"
+          ? { studentIds: selectedStudentIds }
           : assignMode === "class"
           ? { classId: selectedClassId }
           : { admissionLevel: selectedAdmissionLevel }),
@@ -1163,7 +1172,11 @@ export default function FeesManagementPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to assign fee.");
 
-      if ((assignMode === "class" || assignMode === "admissionLevel") && data.summary) {
+      if (assignMode === "multiple" && data.summary) {
+        setSuccessMessage(
+          `Fee assigned to multiple students! Assigned: ${data.summary.assigned}, Skipped (Already Assigned): ${data.summary.skipped}`
+        );
+      } else if ((assignMode === "class" || assignMode === "admissionLevel") && data.summary) {
         setSuccessMessage(
           `Fee assigned to ${assignMode === "class" ? "class" : "admission level"}! Assigned: ${data.summary.assigned}, Skipped (Already Assigned): ${data.summary.skipped}`
         );
@@ -1174,6 +1187,7 @@ export default function FeesManagementPage() {
 
       setAssigningStructure(null);
       setSelectedStudentId("");
+      setSelectedStudentIds([]);
       setSelectedClassId("");
       setSelectedAdmissionLevel("");
       setAssignModalError("");
@@ -1225,6 +1239,11 @@ export default function FeesManagementPage() {
       setTimeout(() => setError(""), 4000);
       return;
     }
+    if (multiAssignMode === "multiple" && multiAssignStudentIds.length === 0) {
+      setError("Please select at least one student.");
+      setTimeout(() => setError(""), 4000);
+      return;
+    }
     if (multiAssignMode === "class" && !multiAssignClassId) {
       setError("Please select a class.");
       setTimeout(() => setError(""), 4000);
@@ -1245,6 +1264,8 @@ export default function FeesManagementPage() {
         feeStructureIds: selectedStructureIds,
         ...(multiAssignMode === "single"
           ? { studentId: multiAssignStudentId }
+          : multiAssignMode === "multiple"
+          ? { studentIds: multiAssignStudentIds }
           : multiAssignMode === "class"
           ? { classId: multiAssignClassId }
           : { admissionLevel: multiAssignAdmissionLevel }),
@@ -1271,6 +1292,7 @@ export default function FeesManagementPage() {
       setIsMultiAssignOpen(false);
       setSelectedStructureIds([]);
       setMultiAssignStudentId("");
+      setMultiAssignStudentIds([]);
       setMultiAssignClassId("");
       setMultiAssignAdmissionLevel("");
       fetchStructures();
@@ -1455,6 +1477,7 @@ export default function FeesManagementPage() {
     setAssigningPackage(pkg);
     setAssignPackageMode("single");
     setAssignPackageStudentId("");
+    setAssignPackageStudentIds([]);
     setAssignPackageClassId("");
     setAssignPackageAdmissionLevel("");
   }
@@ -1467,6 +1490,11 @@ export default function FeesManagementPage() {
 
     if (assignPackageMode === "single" && !assignPackageStudentId) {
       setError("Please select a student.");
+      setTimeout(() => setError(""), 4000);
+      return;
+    }
+    if (assignPackageMode === "multiple" && assignPackageStudentIds.length === 0) {
+      setError("Please select at least one student.");
       setTimeout(() => setError(""), 4000);
       return;
     }
@@ -1489,6 +1517,8 @@ export default function FeesManagementPage() {
       const payload = {
         ...(assignPackageMode === "single"
           ? { studentId: assignPackageStudentId }
+          : assignPackageMode === "multiple"
+          ? { studentIds: assignPackageStudentIds }
           : assignPackageMode === "class"
           ? { classId: assignPackageClassId }
           : { admissionLevel: assignPackageAdmissionLevel }),
@@ -1514,6 +1544,7 @@ export default function FeesManagementPage() {
 
       setAssigningPackage(null);
       setAssignPackageStudentId("");
+      setAssignPackageStudentIds([]);
       setAssignPackageClassId("");
       setAssignPackageAdmissionLevel("");
       fetchStructures();
@@ -2128,6 +2159,11 @@ export default function FeesManagementPage() {
                   type="button"
                   onClick={() => {
                     setError("");
+                    setMultiAssignMode("single");
+                    setMultiAssignStudentId("");
+                    setMultiAssignStudentIds([]);
+                    setMultiAssignClassId("");
+                    setMultiAssignAdmissionLevel("");
                     setIsMultiAssignOpen(true);
                   }}
                   className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-xs transition-colors cursor-pointer shadow-2xs"
@@ -2262,7 +2298,9 @@ export default function FeesManagementPage() {
                                   setError("");
                                   setAssignModalError("");
                                   setAssigningStructure(st);
+                                  setAssignMode("single");
                                   setSelectedStudentId("");
+                                  setSelectedStudentIds([]);
                                   setSelectedClassId("");
                                   setSelectedAdmissionLevel("");
                                 }}
@@ -3300,7 +3338,7 @@ export default function FeesManagementPage() {
                 <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
                   Assignment Target
                 </label>
-                <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 rounded-xl text-xs font-bold">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 p-1 bg-slate-100 rounded-xl text-xs font-bold">
                   <button
                     type="button"
                     onClick={() => {
@@ -3312,6 +3350,18 @@ export default function FeesManagementPage() {
                     }`}
                   >
                     Single Student
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAssignMode("multiple");
+                      setAssignModalError("");
+                    }}
+                    className={`py-2 rounded-lg transition-all ${
+                      assignMode === "multiple" ? "bg-white text-slate-900 shadow-2xs" : "text-slate-600"
+                    }`}
+                  >
+                    Multiple Students
                   </button>
                   <button
                     type="button"
@@ -3350,6 +3400,23 @@ export default function FeesManagementPage() {
                   value={selectedStudentId}
                   onChange={(id) => {
                     setSelectedStudentId(id);
+                    setAssignModalError("");
+                  }}
+                  error={assignModalError}
+                />
+              )}
+
+              {/* Option 2: Multiple Students */}
+              {assignMode === "multiple" && (
+                <StudentSelector
+                  label="Select Students (Multiple)"
+                  required
+                  multiple
+                  students={students}
+                  classes={classes}
+                  values={selectedStudentIds}
+                  onMultiChange={(ids) => {
+                    setSelectedStudentIds(ids);
                     setAssignModalError("");
                   }}
                   error={assignModalError}
@@ -3913,7 +3980,7 @@ export default function FeesManagementPage() {
                 <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
                   Assign To *
                 </label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <button
                     type="button"
                     onClick={() => setMultiAssignMode("single")}
@@ -3924,6 +3991,17 @@ export default function FeesManagementPage() {
                     }`}
                   >
                     Single Student
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMultiAssignMode("multiple")}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                      multiAssignMode === "multiple"
+                        ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    Multiple Students
                   </button>
                   <button
                     type="button"
@@ -3959,6 +4037,18 @@ export default function FeesManagementPage() {
                   classes={classes}
                   value={multiAssignStudentId}
                   onChange={(id) => setMultiAssignStudentId(id)}
+                />
+              )}
+
+              {multiAssignMode === "multiple" && (
+                <StudentSelector
+                  label="Select Students (Multiple)"
+                  required
+                  multiple
+                  students={students}
+                  classes={classes}
+                  values={multiAssignStudentIds}
+                  onMultiChange={(ids) => setMultiAssignStudentIds(ids)}
                 />
               )}
 
@@ -4466,7 +4556,7 @@ export default function FeesManagementPage() {
                 <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
                   Assign To *
                 </label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <button
                     type="button"
                     onClick={() => setAssignPackageMode("single")}
@@ -4477,6 +4567,17 @@ export default function FeesManagementPage() {
                     }`}
                   >
                     Single Student
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAssignPackageMode("multiple")}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                      assignPackageMode === "multiple"
+                        ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    Multiple Students
                   </button>
                   <button
                     type="button"
@@ -4512,6 +4613,18 @@ export default function FeesManagementPage() {
                   classes={classes}
                   value={assignPackageStudentId}
                   onChange={(id) => setAssignPackageStudentId(id)}
+                />
+              )}
+
+              {assignPackageMode === "multiple" && (
+                <StudentSelector
+                  label="Select Students (Multiple)"
+                  required
+                  multiple
+                  students={students}
+                  classes={classes}
+                  values={assignPackageStudentIds}
+                  onMultiChange={(ids) => setAssignPackageStudentIds(ids)}
                 />
               )}
 

@@ -5,6 +5,7 @@ export interface ExecuteAssignmentParams {
   schoolId: string;
   feeStructureIds: string[];
   studentId?: string;
+  studentIds?: string[];
   classId?: string;
   admissionLevel?: string;
 }
@@ -26,7 +27,7 @@ export interface AssignmentExecutionSummary {
   structuresProcessed: number;
   totalFeesCreated: number;
   totalFeesSkipped: number;
-  targetMode: "single" | "class" | "admissionLevel";
+  targetMode: "single" | "multiple" | "class" | "admissionLevel";
   totalTargetStudents: number;
   results: SingleStructureAssignmentResult[];
 }
@@ -41,41 +42,47 @@ export class FeeAssignmentError extends Error {
 }
 
 /**
- * Resolves and validates target student IDs based on mode (single, class, or admission level).
+ * Resolves and validates target student IDs based on mode (single, multiple, class, or admission level).
  */
 export async function resolveTargetStudents(
   params: {
     schoolId: string;
     studentId?: string;
+    studentIds?: string[];
     classId?: string;
     admissionLevel?: string;
   },
   tx: Prisma.TransactionClient | typeof prisma
 ): Promise<{
-  targetMode: "single" | "class" | "admissionLevel";
+  targetMode: "single" | "multiple" | "class" | "admissionLevel";
   studentIds: string[];
 }> {
-  const { schoolId, studentId, classId, admissionLevel } = params;
+  const { schoolId, studentId, studentIds, classId, admissionLevel } = params;
 
-  const targetCount = [Boolean(studentId), Boolean(classId), Boolean(admissionLevel)].filter(Boolean).length;
+  const hasStudentId = Boolean(studentId?.trim());
+  const hasStudentIds = Array.isArray(studentIds) && studentIds.length > 0;
+  const hasClassId = Boolean(classId?.trim());
+  const hasAdmissionLevel = Boolean(admissionLevel?.trim());
+
+  const targetCount = [hasStudentId, hasStudentIds, hasClassId, hasAdmissionLevel].filter(Boolean).length;
 
   if (targetCount === 0) {
-    throw new FeeAssignmentError("Either studentId, classId, or admissionLevel is required", 400);
+    throw new FeeAssignmentError("Either studentId, studentIds, classId, or admissionLevel is required", 400);
   }
 
   if (targetCount > 1) {
-    throw new FeeAssignmentError("Provide only one assignment target (studentId, classId, or admissionLevel)", 400);
+    throw new FeeAssignmentError("Provide only one assignment target (studentId, studentIds, classId, or admissionLevel)", 400);
   }
 
   // 1. Single Student Target
-  if (studentId) {
+  if (hasStudentId) {
     const student = await tx.student.findFirst({
-      where: { id: studentId, schoolId },
+      where: { id: studentId!.trim(), schoolId, isActive: true },
       select: { id: true },
     });
 
     if (!student) {
-      throw new FeeAssignmentError("Student not found", 404);
+      throw new FeeAssignmentError("Student not found or inactive", 404);
     }
 
     return {
@@ -84,10 +91,28 @@ export async function resolveTargetStudents(
     };
   }
 
-  // 2. Class Target
-  if (classId) {
+  // 2. Multiple Students Target
+  if (hasStudentIds) {
+    const uniqueIds = Array.from(new Set(studentIds!.map((id) => id.trim()).filter(Boolean)));
+    const validStudents = await tx.student.findMany({
+      where: { id: { in: uniqueIds }, schoolId, isActive: true },
+      select: { id: true },
+    });
+
+    if (validStudents.length === 0) {
+      throw new FeeAssignmentError("No active students found for the provided IDs", 404);
+    }
+
+    return {
+      targetMode: "multiple",
+      studentIds: validStudents.map((s) => s.id),
+    };
+  }
+
+  // 3. Class Target
+  if (hasClassId) {
     const classRecord = await tx.class.findFirst({
-      where: { id: classId, schoolId },
+      where: { id: classId!.trim(), schoolId },
       select: { id: true },
     });
 
@@ -96,7 +121,7 @@ export async function resolveTargetStudents(
     }
 
     const enrollments = await tx.classEnrollment.findMany({
-      where: { classId },
+      where: { classId: classRecord.id },
       select: { studentId: true },
     });
 
@@ -110,10 +135,10 @@ export async function resolveTargetStudents(
     };
   }
 
-  // 3. Admission Level Target
-  if (admissionLevel) {
+  // 4. Admission Level Target
+  if (hasAdmissionLevel) {
     const matchingStudents = await tx.student.findMany({
-      where: { schoolId, admissionLevel },
+      where: { schoolId, admissionLevel: admissionLevel!.trim(), isActive: true },
       select: { id: true },
     });
 
@@ -237,7 +262,7 @@ export async function executeFeeAssignment(
   params: ExecuteAssignmentParams,
   txClient?: Prisma.TransactionClient
 ): Promise<AssignmentExecutionSummary> {
-  const { schoolId, feeStructureIds, studentId, classId, admissionLevel } = params;
+  const { schoolId, feeStructureIds, studentId, studentIds: inputStudentIds, classId, admissionLevel } = params;
 
   if (!feeStructureIds || feeStructureIds.length === 0) {
     throw new FeeAssignmentError("At least one fee structure ID is required", 400);
@@ -252,7 +277,7 @@ export async function executeFeeAssignment(
   const runWithTransaction = async (tx: Prisma.TransactionClient): Promise<AssignmentExecutionSummary> => {
     // 1. Resolve eligible target students
     const { targetMode, studentIds } = await resolveTargetStudents(
-      { schoolId, studentId, classId, admissionLevel },
+      { schoolId, studentId, studentIds: inputStudentIds, classId, admissionLevel },
       tx
     );
 

@@ -20,8 +20,11 @@ export interface StudentItem {
 
 export interface StudentSelectorProps {
   students: StudentItem[];
-  value: string; // Selected student ID
-  onChange: (studentId: string, student?: StudentItem) => void;
+  value?: string; // Selected student ID (Single mode)
+  values?: string[]; // Selected student IDs (Multi mode)
+  multiple?: boolean;
+  onChange?: (studentId: string, student?: StudentItem) => void;
+  onMultiChange?: (studentIds: string[], students?: StudentItem[]) => void;
   classes?: Array<{ id: string; name: string; section?: string | null }>;
   excludeStudentIds?: string[]; // IDs to exclude (e.g. already enrolled)
   placeholder?: string;
@@ -34,8 +37,11 @@ export interface StudentSelectorProps {
 
 export function StudentSelector({
   students,
-  value,
+  value = "",
+  values = [],
+  multiple = false,
   onChange,
+  onMultiChange,
   classes = [],
   excludeStudentIds = [],
   placeholder = "Select a student...",
@@ -45,6 +51,7 @@ export function StudentSelector({
   error,
   className = "",
 }: StudentSelectorProps) {
+  const isMulti = Boolean(multiple);
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedClassId, setSelectedClassId] = useState<string>("ALL");
@@ -54,11 +61,25 @@ export function StudentSelector({
   const modalRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Find currently selected student
+  // Set of selected IDs for fast lookup
+  const selectedIdSet = useMemo(() => {
+    if (isMulti) {
+      return new Set(values || []);
+    }
+    return new Set(value ? [value] : []);
+  }, [isMulti, values, value]);
+
+  // Selected students array
+  const selectedStudents = useMemo(() => {
+    if (selectedIdSet.size === 0) return [];
+    return students.filter((s) => selectedIdSet.has(s.id) || selectedIdSet.has(s.studentId));
+  }, [students, selectedIdSet]);
+
+  // Find currently selected student (Single mode)
   const selectedStudent = useMemo(() => {
-    if (!value) return null;
+    if (isMulti || !value) return null;
     return students.find((s) => s.id === value || s.studentId === value) || null;
-  }, [students, value]);
+  }, [isMulti, students, value]);
 
   // Extract unique admission levels across students for the filter
   const availableLevels = useMemo(() => {
@@ -165,14 +186,57 @@ export function StudentSelector({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen]);
 
-  function handleSelect(student: StudentItem) {
-    onChange(student.id, student);
+  function handleSingleSelect(student: StudentItem) {
+    onChange?.(student.id, student);
     setIsOpen(false);
   }
 
-  function handleClear(e: React.MouseEvent) {
+  function handleSingleClear(e: React.MouseEvent) {
     e.stopPropagation();
-    onChange("", undefined);
+    onChange?.("", undefined);
+  }
+
+  function handleToggleMulti(studentId: string) {
+    const currentList = values || [];
+    let nextList: string[];
+    if (currentList.includes(studentId)) {
+      nextList = currentList.filter((id) => id !== studentId);
+    } else {
+      nextList = [...currentList, studentId];
+    }
+    const nextStudents = students.filter((s) => nextList.includes(s.id));
+    onMultiChange?.(nextList, nextStudents);
+  }
+
+  function handleSelectAllFiltered() {
+    const currentSet = new Set(values || []);
+    const filteredIds = filteredStudents.map((s) => s.id);
+    const allFilteredSelected = filteredIds.every((id) => currentSet.has(id));
+
+    let nextList: string[];
+    if (allFilteredSelected) {
+      // Unselect all filtered
+      const removeSet = new Set(filteredIds);
+      nextList = (values || []).filter((id) => !removeSet.has(id));
+    } else {
+      // Add all filtered
+      filteredIds.forEach((id) => currentSet.add(id));
+      nextList = Array.from(currentSet);
+    }
+    const nextStudents = students.filter((s) => nextList.includes(s.id));
+    onMultiChange?.(nextList, nextStudents);
+  }
+
+  function handleClearAllMulti(e?: React.MouseEvent) {
+    if (e) e.stopPropagation();
+    onMultiChange?.([], []);
+  }
+
+  function handleRemoveMultiItem(studentId: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    const nextList = (values || []).filter((id) => id !== studentId);
+    const nextStudents = students.filter((s) => nextList.includes(s.id));
+    onMultiChange?.(nextList, nextStudents);
   }
 
   function getStudentClassName(student: StudentItem): string {
@@ -186,6 +250,19 @@ export function StudentSelector({
     return `${f}${l}` || "ST";
   }
 
+  // Filtered students selection state in multi mode
+  const allFilteredSelected = useMemo(() => {
+    if (!isMulti || filteredStudents.length === 0) return false;
+    const currentSet = new Set(values || []);
+    return filteredStudents.every((s) => currentSet.has(s.id));
+  }, [isMulti, filteredStudents, values]);
+
+  const someFilteredSelected = useMemo(() => {
+    if (!isMulti || filteredStudents.length === 0) return false;
+    const currentSet = new Set(values || []);
+    return filteredStudents.some((s) => currentSet.has(s.id));
+  }, [isMulti, filteredStudents, values]);
+
   return (
     <div className={`space-y-1.5 ${className}`}>
       {label && (
@@ -194,78 +271,158 @@ export function StudentSelector({
         </label>
       )}
 
-      {/* Selected Student Card View or Trigger Button */}
-      {selectedStudent ? (
-        <div className="flex items-center justify-between p-3 bg-blue-50/70 border border-blue-200 rounded-xl hover:bg-blue-50 transition-colors">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-lg bg-blue-600 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-xs">
-              {getInitials(selectedStudent.firstName, selectedStudent.lastName)}
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-bold text-slate-900 truncate">
-                  {selectedStudent.firstName} {selectedStudent.lastName}
+      {/* Multi-Select Trigger / Summary Card */}
+      {isMulti ? (
+        selectedStudents.length > 0 ? (
+          <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-7 h-7 rounded-lg bg-blue-600 text-white font-bold text-xs flex items-center justify-center shadow-xs">
+                  {selectedStudents.length}
                 </span>
-                <span className="px-2 py-0.5 rounded-md bg-blue-100/80 text-blue-800 text-[11px] font-mono font-bold">
-                  {selectedStudent.studentId}
+                <span className="text-sm font-bold text-slate-900">
+                  {selectedStudents.length} student{selectedStudents.length === 1 ? "" : "s"} selected
                 </span>
               </div>
-              <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-600">
-                <span className={`px-2 py-0.5 rounded-md text-[11px] font-medium ${
-                  getStudentClassName(selectedStudent) === "Unassigned"
-                    ? "bg-slate-100 text-slate-500 border border-slate-200"
-                    : "bg-emerald-50 text-emerald-800 border border-emerald-200 font-semibold"
-                }`}>
-                  {getStudentClassName(selectedStudent)}
-                </span>
-                {selectedStudent.admissionLevel && (
-                  <span className="text-slate-400">• {selectedStudent.admissionLevel}</span>
-                )}
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsOpen(true)}
+                  disabled={disabled}
+                  className="px-2.5 py-1.5 text-xs font-semibold text-blue-700 hover:text-blue-800 hover:bg-blue-100/70 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Edit Selection
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => handleClearAllMulti(e)}
+                  disabled={disabled}
+                  title="Clear all selected students"
+                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
               </div>
             </div>
-          </div>
 
-          <div className="flex items-center gap-1.5 shrink-0 ml-3">
-            <button
-              type="button"
-              onClick={() => setIsOpen(true)}
-              disabled={disabled}
-              className="px-2.5 py-1.5 text-xs font-semibold text-blue-700 hover:text-blue-800 hover:bg-blue-100/70 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-            >
-              Change
-            </button>
-            <button
-              type="button"
-              onClick={handleClear}
-              disabled={disabled}
-              title="Clear selection"
-              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+            {/* Selected Student Chips Preview */}
+            <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pt-1 border-t border-blue-100">
+              {selectedStudents.map((st) => (
+                <span
+                  key={st.id}
+                  className="inline-flex items-center gap-1 px-2 py-1 bg-white border border-blue-200 text-blue-900 text-xs font-medium rounded-lg shadow-2xs"
+                >
+                  <span className="font-semibold">{st.firstName} {st.lastName}</span>
+                  <span className="text-[10px] text-blue-600 font-mono">({st.studentId})</span>
+                  <button
+                    type="button"
+                    onClick={(e) => handleRemoveMultiItem(st.id, e)}
+                    className="ml-0.5 text-blue-400 hover:text-rose-600 p-0.5 rounded cursor-pointer"
+                  >
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </span>
+              ))}
+            </div>
           </div>
-        </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setIsOpen(true)}
+            disabled={disabled}
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 bg-slate-50 hover:bg-slate-100/80 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 transition-all text-left cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+              error ? "border-rose-300 ring-1 ring-rose-300" : "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+            }`}
+          >
+            <span className="flex items-center gap-2 text-slate-500">
+              <svg className="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+              </svg>
+              <span>{placeholder || "Select students (multiple)..."}</span>
+            </span>
+            <span className="px-2 py-0.5 rounded-md bg-slate-200/70 text-slate-700 text-xs font-semibold">
+              Browse ({students.length})
+            </span>
+          </button>
+        )
       ) : (
-        <button
-          type="button"
-          onClick={() => setIsOpen(true)}
-          disabled={disabled}
-          className={`w-full flex items-center justify-between px-3.5 py-2.5 bg-slate-50 hover:bg-slate-100/80 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 transition-all text-left cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
-            error ? "border-rose-300 ring-1 ring-rose-300" : "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
-          }`}
-        >
-          <span className="flex items-center gap-2 text-slate-500">
-            <svg className="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-            </svg>
-            <span>{placeholder}</span>
-          </span>
-          <span className="px-2 py-0.5 rounded-md bg-slate-200/70 text-slate-700 text-xs font-semibold">
-            Search ({students.length})
-          </span>
-        </button>
+        /* Single-Select Card View or Trigger Button */
+        selectedStudent ? (
+          <div className="flex items-center justify-between p-3 bg-blue-50/70 border border-blue-200 rounded-xl hover:bg-blue-50 transition-colors">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-lg bg-blue-600 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-xs">
+                {getInitials(selectedStudent.firstName, selectedStudent.lastName)}
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-bold text-slate-900 truncate">
+                    {selectedStudent.firstName} {selectedStudent.lastName}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md bg-blue-100/80 text-blue-800 text-[11px] font-mono font-bold">
+                    {selectedStudent.studentId}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-600">
+                  <span className={`px-2 py-0.5 rounded-md text-[11px] font-medium ${
+                    getStudentClassName(selectedStudent) === "Unassigned"
+                      ? "bg-slate-100 text-slate-500 border border-slate-200"
+                      : "bg-emerald-50 text-emerald-800 border border-emerald-200 font-semibold"
+                  }`}>
+                    {getStudentClassName(selectedStudent)}
+                  </span>
+                  {selectedStudent.admissionLevel && (
+                    <span className="text-slate-400">• {selectedStudent.admissionLevel}</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0 ml-3">
+              <button
+                type="button"
+                onClick={() => setIsOpen(true)}
+                disabled={disabled}
+                className="px-2.5 py-1.5 text-xs font-semibold text-blue-700 hover:text-blue-800 hover:bg-blue-100/70 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Change
+              </button>
+              <button
+                type="button"
+                onClick={handleSingleClear}
+                disabled={disabled}
+                title="Clear selection"
+                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setIsOpen(true)}
+            disabled={disabled}
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 bg-slate-50 hover:bg-slate-100/80 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 transition-all text-left cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+              error ? "border-rose-300 ring-1 ring-rose-300" : "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+            }`}
+          >
+            <span className="flex items-center gap-2 text-slate-500">
+              <svg className="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+              </svg>
+              <span>{placeholder}</span>
+            </span>
+            <span className="px-2 py-0.5 rounded-md bg-slate-200/70 text-slate-700 text-xs font-semibold">
+              Search ({students.length})
+            </span>
+          </button>
+        )
       )}
 
       {error && <p className="text-xs text-rose-600 font-medium">{error}</p>}
@@ -280,9 +437,13 @@ export function StudentSelector({
             {/* Modal Header */}
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
               <div>
-                <h3 className="text-base font-bold text-slate-900">Select Student</h3>
+                <h3 className="text-base font-bold text-slate-900">
+                  {isMulti ? "Select Students (Multi-Select)" : "Select Student"}
+                </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Search, filter, and choose a student ({filteredStudents.length} available)
+                  {isMulti
+                    ? `${(values || []).length} selected · ${filteredStudents.length} available`
+                    : `Search, filter, and choose a student (${filteredStudents.length} available)`}
                 </p>
               </div>
               <button
@@ -379,6 +540,36 @@ export function StudentSelector({
                   </select>
                 </div>
               </div>
+
+              {/* Multi-Select Batch Actions Bar */}
+              {isMulti && (
+                <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSelectAllFiltered}
+                      disabled={filteredStudents.length === 0}
+                      className="px-2.5 py-1 font-semibold text-blue-700 hover:text-blue-800 hover:bg-blue-50 border border-blue-200 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      {allFilteredSelected
+                        ? `Deselect All Filtered (${filteredStudents.length})`
+                        : `Select All Filtered (${filteredStudents.length})`}
+                    </button>
+                    {(values || []).length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => handleClearAllMulti()}
+                        className="px-2 py-1 font-semibold text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                      >
+                        Clear All
+                      </button>
+                    )}
+                  </div>
+                  <span className="font-bold text-slate-700 bg-slate-100 px-2.5 py-0.5 rounded-full">
+                    {(values || []).length} selected
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Scrollable Student Table/List */}
@@ -411,28 +602,52 @@ export function StudentSelector({
               ) : (
                 <div className="divide-y divide-slate-100">
                   {filteredStudents.map((st) => {
-                    const isSelected = value === st.id || value === st.studentId;
+                    const isSelected = isMulti
+                      ? (values || []).includes(st.id)
+                      : value === st.id || value === st.studentId;
                     const classNameLabel = getStudentClassName(st);
                     const isUnassigned = classNameLabel === "Unassigned";
 
                     return (
                       <div
                         key={st.id}
-                        onClick={() => handleSelect(st)}
+                        onClick={() => {
+                          if (isMulti) {
+                            handleToggleMulti(st.id);
+                          } else {
+                            handleSingleSelect(st);
+                          }
+                        }}
                         className={`px-4 py-3 flex items-center justify-between hover:bg-slate-50 transition-colors cursor-pointer ${
                           isSelected ? "bg-blue-50/60" : ""
                         }`}
                       >
                         <div className="flex items-center gap-3 min-w-0">
-                          <div
-                            className={`w-9 h-9 rounded-lg font-bold text-xs flex items-center justify-center shrink-0 ${
-                              isSelected
-                                ? "bg-blue-600 text-white shadow-xs"
-                                : "bg-slate-100 text-slate-700"
-                            }`}
-                          >
-                            {getInitials(st.firstName, st.lastName)}
-                          </div>
+                          {isMulti ? (
+                            <div
+                              className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                                isSelected
+                                  ? "bg-blue-600 border-blue-600 text-white"
+                                  : "border-slate-300 bg-white"
+                              }`}
+                            >
+                              {isSelected && (
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                                </svg>
+                              )}
+                            </div>
+                          ) : (
+                            <div
+                              className={`w-9 h-9 rounded-lg font-bold text-xs flex items-center justify-center shrink-0 ${
+                                isSelected
+                                  ? "bg-blue-600 text-white shadow-xs"
+                                  : "bg-slate-100 text-slate-700"
+                              }`}
+                            >
+                              {getInitials(st.firstName, st.lastName)}
+                            </div>
+                          )}
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-bold text-slate-900 truncate">
@@ -460,7 +675,22 @@ export function StudentSelector({
                         </div>
 
                         <div className="shrink-0 ml-3">
-                          {isSelected ? (
+                          {isMulti ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleToggleMulti(st.id);
+                              }}
+                              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                                isSelected
+                                  ? "bg-blue-100/80 text-blue-800 hover:bg-blue-200/80 border border-blue-200"
+                                  : "bg-white text-slate-600 hover:text-blue-700 hover:bg-blue-50 border border-slate-200"
+                              }`}
+                            >
+                              {isSelected ? "Selected" : "Select"}
+                            </button>
+                          ) : isSelected ? (
                             <span className="flex items-center gap-1 text-xs font-bold text-blue-700 bg-blue-100/80 px-2.5 py-1 rounded-lg">
                               <svg className="w-3.5 h-3.5 text-blue-700" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
@@ -472,7 +702,7 @@ export function StudentSelector({
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleSelect(st);
+                                handleSingleSelect(st);
                               }}
                               className="px-3 py-1 text-xs font-semibold text-slate-600 hover:text-blue-700 hover:bg-blue-50 border border-slate-200 rounded-lg transition-colors cursor-pointer"
                             >
@@ -488,15 +718,41 @@ export function StudentSelector({
             </div>
 
             {/* Modal Footer */}
-            <div className="px-6 py-3 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between text-xs text-slate-500 shrink-0">
-              <span>Showing {filteredStudents.length} of {students.length} students</span>
-              <button
-                type="button"
-                onClick={() => setIsOpen(false)}
-                className="px-3.5 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100 font-semibold transition-colors cursor-pointer"
-              >
-                Close
-              </button>
+            <div className="px-6 py-3.5 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between text-xs text-slate-500 shrink-0">
+              {isMulti ? (
+                <>
+                  <span className="font-medium">
+                    <strong className="text-slate-800 font-bold">{(values || []).length}</strong> student{(values || []).length === 1 ? "" : "s"} selected
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsOpen(false)}
+                      className="px-3.5 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100 font-semibold transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsOpen(false)}
+                      className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold transition-colors cursor-pointer shadow-xs"
+                    >
+                      Done ({(values || []).length} selected)
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <span>Showing {filteredStudents.length} of {students.length} students</span>
+                  <button
+                    type="button"
+                    onClick={() => setIsOpen(false)}
+                    className="px-3.5 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100 font-semibold transition-colors cursor-pointer"
+                  >
+                    Close
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
