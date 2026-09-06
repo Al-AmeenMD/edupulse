@@ -103,7 +103,11 @@ export async function getUnifiedLedger(
   // ---------------------------------------------------------------------------
   // 3. Construct Where Clauses with Tenant Isolation
   // ---------------------------------------------------------------------------
-  const paymentWhere: Prisma.PaymentWhereInput = { schoolId };
+  const paymentWhere: Prisma.PaymentWhereInput = {
+    schoolId,
+    packagePaymentId: null, // Exclude child payments to prevent double-counting
+  };
+  const packagePaymentWhere: Prisma.PackagePaymentWhereInput = { schoolId };
   const expenseWhere: Prisma.ExpenseWhereInput = { schoolId, deletedAt: null };
   const budgetAuditWhere: Prisma.BudgetAuditLogWhereInput = {
     budget: { schoolId },
@@ -112,6 +116,10 @@ export async function getUnifiedLedger(
   // Date filters
   if (startOfRange || endOfRange) {
     paymentWhere.paidAt = {
+      ...(startOfRange ? { gte: startOfRange } : {}),
+      ...(endOfRange ? { lte: endOfRange } : {}),
+    };
+    packagePaymentWhere.paidAt = {
       ...(startOfRange ? { gte: startOfRange } : {}),
       ...(endOfRange ? { lte: endOfRange } : {}),
     };
@@ -131,6 +139,9 @@ export async function getUnifiedLedger(
   // Category filters
   if (category && category !== "ALL") {
     const isFeeTypeMatch = VALID_FEE_TYPES.includes(category.toUpperCase() as FeeType);
+    const isPackageCategory =
+      category.toLowerCase() === "fee package" ||
+      category.toLowerCase() === "package";
     const isBudgetCategory =
       category.toLowerCase() === "budget allocation" ||
       category.toLowerCase() === "budget";
@@ -139,25 +150,32 @@ export async function getUnifiedLedger(
       paymentWhere.fee = {
         feeStructure: { type: category.toUpperCase() as FeeType },
       };
-    } else {
-      // Incompatible category for Payment
+      packagePaymentWhere.payments = {
+        some: {
+          fee: {
+            feeStructure: { type: category.toUpperCase() as FeeType },
+          },
+        },
+      };
+    } else if (isPackageCategory) {
       paymentWhere.id = "__no_matching_payment_category__";
+      // packagePaymentWhere matches all package payments
+    } else {
+      paymentWhere.id = "__no_matching_payment_category__";
+      packagePaymentWhere.id = "__no_matching_package_category__";
     }
 
-    if (!isBudgetCategory && !isFeeTypeMatch) {
+    if (!isBudgetCategory && !isFeeTypeMatch && !isPackageCategory) {
       expenseWhere.category = { equals: category, mode: "insensitive" };
     } else if (isFeeTypeMatch) {
-      // Allow if an expense category literally matches the fee type string
       expenseWhere.category = { equals: category, mode: "insensitive" };
     } else {
-      // Incompatible category for Expense
       expenseWhere.id = "__no_matching_expense_category__";
     }
 
     if (isBudgetCategory) {
       // Budget audits match
     } else {
-      // Incompatible category for Budget Audit
       budgetAuditWhere.id = "__no_matching_budget_category__";
     }
   }
@@ -172,6 +190,17 @@ export async function getUnifiedLedger(
       { fee: { student: { lastName: { contains: search, mode: "insensitive" } } } },
       { fee: { student: { studentId: { contains: search, mode: "insensitive" } } } },
       { fee: { feeStructure: { name: { contains: search, mode: "insensitive" } } } },
+    ];
+
+    packagePaymentWhere.OR = [
+      { receiptNumber: { contains: search, mode: "insensitive" } },
+      { reference: { contains: search, mode: "insensitive" } },
+      { method: { contains: search, mode: "insensitive" } },
+      { note: { contains: search, mode: "insensitive" } },
+      { student: { firstName: { contains: search, mode: "insensitive" } } },
+      { student: { lastName: { contains: search, mode: "insensitive" } } },
+      { student: { studentId: { contains: search, mode: "insensitive" } } },
+      { package: { name: { contains: search, mode: "insensitive" } } },
     ];
 
     expenseWhere.OR = [
@@ -190,17 +219,23 @@ export async function getUnifiedLedger(
   // ---------------------------------------------------------------------------
   const [
     paymentCount,
+    packagePaymentCount,
     expenseCount,
     budgetAuditCount,
     paymentsAgg,
+    packagePaymentsAgg,
     expensesAgg,
     activeBudgets,
   ] = await Promise.all([
     includePayments ? prisma.payment.count({ where: paymentWhere }) : 0,
+    includePayments ? prisma.packagePayment.count({ where: packagePaymentWhere }) : 0,
     includeExpenses ? prisma.expense.count({ where: expenseWhere }) : 0,
     includeBudgets ? prisma.budgetAuditLog.count({ where: budgetAuditWhere }) : 0,
     includePayments
       ? prisma.payment.aggregate({ where: paymentWhere, _sum: { amount: true } })
+      : { _sum: { amount: null } },
+    includePayments
+      ? prisma.packagePayment.aggregate({ where: packagePaymentWhere, _sum: { amount: true } })
       : { _sum: { amount: null } },
     includeExpenses
       ? prisma.expense.aggregate({ where: expenseWhere, _sum: { amount: true } })
@@ -211,13 +246,15 @@ export async function getUnifiedLedger(
     }),
   ]);
 
-  const totalItems = paymentCount + expenseCount + budgetAuditCount;
+  const totalItems = paymentCount + packagePaymentCount + expenseCount + budgetAuditCount;
   const totalPages = Math.ceil(totalItems / limit) || 1;
   const hasNextPage = page < totalPages;
   const hasPrevPage = page > 1;
 
   // Financial summary computation
-  const totalInflowDecimal = new Prisma.Decimal(paymentsAgg._sum.amount || 0);
+  const standaloneInflowDecimal = new Prisma.Decimal(paymentsAgg._sum.amount || 0);
+  const packageInflowDecimal = new Prisma.Decimal(packagePaymentsAgg._sum.amount || 0);
+  const totalInflowDecimal = standaloneInflowDecimal.add(packageInflowDecimal);
   const totalOutflowDecimal = new Prisma.Decimal(expensesAgg._sum.amount || 0);
   const netCashFlowDecimal = totalInflowDecimal.sub(totalOutflowDecimal);
   const totalBudgetedDecimal = activeBudgets.reduce(
@@ -229,24 +266,36 @@ export async function getUnifiedLedger(
   // 5. Data Retrieval with Bounded Window Slicing
   // ---------------------------------------------------------------------------
   let rawPayments: any[] = [];
+  let rawPackagePayments: any[] = [];
   let rawExpenses: any[] = [];
   let rawBudgetAudits: any[] = [];
 
   if (typeFilter === "PAYMENT") {
-    rawPayments = await prisma.payment.findMany({
-      where: paymentWhere,
-      orderBy: [{ paidAt: sortOrder }, { id: "desc" }],
-      skip: (page - 1) * limit,
-      take: limit,
-      include: {
-        fee: {
-          include: {
-            student: { select: { id: true, firstName: true, lastName: true, studentId: true } },
-            feeStructure: { select: { id: true, name: true, type: true, academicYear: true, term: true } },
+    const windowSize = page * limit;
+    [rawPayments, rawPackagePayments] = await Promise.all([
+      prisma.payment.findMany({
+        where: paymentWhere,
+        orderBy: [{ paidAt: sortOrder }, { id: "desc" }],
+        take: windowSize,
+        include: {
+          fee: {
+            include: {
+              student: { select: { id: true, firstName: true, lastName: true, studentId: true } },
+              feeStructure: { select: { id: true, name: true, type: true, academicYear: true, term: true } },
+            },
           },
         },
-      },
-    });
+      }),
+      prisma.packagePayment.findMany({
+        where: packagePaymentWhere,
+        orderBy: [{ paidAt: sortOrder }, { id: "desc" }],
+        take: windowSize,
+        include: {
+          student: { select: { id: true, firstName: true, lastName: true, studentId: true } },
+          package: { select: { id: true, name: true, academicYear: true, term: true } },
+        },
+      }),
+    ]);
   } else if (typeFilter === "EXPENSE") {
     rawExpenses = await prisma.expense.findMany({
       where: expenseWhere,
@@ -267,7 +316,7 @@ export async function getUnifiedLedger(
   } else {
     // type === "ALL": Multi-stream query with bounded window take (page * limit)
     const windowSize = page * limit;
-    [rawPayments, rawExpenses, rawBudgetAudits] = await Promise.all([
+    [rawPayments, rawPackagePayments, rawExpenses, rawBudgetAudits] = await Promise.all([
       includePayments
         ? prisma.payment.findMany({
             where: paymentWhere,
@@ -280,6 +329,17 @@ export async function getUnifiedLedger(
                   feeStructure: { select: { id: true, name: true, type: true, academicYear: true, term: true } },
                 },
               },
+            },
+          })
+        : [],
+      includePayments
+        ? prisma.packagePayment.findMany({
+            where: packagePaymentWhere,
+            orderBy: [{ paidAt: sortOrder }, { id: "desc" }],
+            take: windowSize,
+            include: {
+              student: { select: { id: true, firstName: true, lastName: true, studentId: true } },
+              package: { select: { id: true, name: true, academicYear: true, term: true } },
             },
           })
         : [],
@@ -308,6 +368,7 @@ export async function getUnifiedLedger(
   // ---------------------------------------------------------------------------
   const userIds = new Set<string>();
   rawPayments.forEach((p) => { if (p.recordedBy) userIds.add(p.recordedBy); });
+  rawPackagePayments.forEach((p) => { if (p.recordedBy) userIds.add(p.recordedBy); });
   rawExpenses.forEach((e) => { if (e.recordedBy) userIds.add(e.recordedBy); });
   rawBudgetAudits.forEach((b) => { if (b.changedBy) userIds.add(b.changedBy); });
 
@@ -353,6 +414,37 @@ export async function getUnifiedLedger(
         studentName,
         academicYear: structure?.academicYear,
         term: structure?.term || undefined,
+      },
+    };
+  });
+
+  const normalizedPackagePayments: NormalizedLedgerEntry[] = rawPackagePayments.map((p) => {
+    const amtDecimal = new Prisma.Decimal(p.amount);
+    const student = p.student;
+    const pkg = p.package;
+    const studentName = student ? `${student.firstName} ${student.lastName}`.trim() : "Student";
+    const studentId = student?.studentId || "";
+    const packageName = pkg?.name || "Fee Package";
+
+    return {
+      id: `PKG_PAYMENT_${p.id}`,
+      sourceId: p.id,
+      type: "PAYMENT",
+      direction: "IN",
+      occurredAt: p.paidAt.toISOString(),
+      description: `Package Payment for ${packageName} — ${studentName}${studentId ? ` (${studentId})` : ""}`,
+      category: "Fee Package",
+      amount: amtDecimal.toFixed(2),
+      reference: p.receiptNumber,
+      method: p.method,
+      recordedBy: userMap.get(p.recordedBy) || "School Administrator",
+      metadata: {
+        studentId: student?.id,
+        studentName,
+        packageId: pkg?.id,
+        packageName,
+        academicYear: pkg?.academicYear,
+        term: pkg?.term || undefined,
       },
     };
   });
@@ -417,16 +509,29 @@ export async function getUnifiedLedger(
   let finalEntries: NormalizedLedgerEntry[] = [];
 
   if (typeFilter !== "ALL") {
-    // Single stream: already sliced and sorted by DB query
-    finalEntries = [
+    // Single stream: combine payments and packagePayments, sort deterministically, and slice
+    const combined = [
       ...normalizedPayments,
+      ...normalizedPackagePayments,
       ...normalizedExpenses,
       ...normalizedBudgetAudits,
     ];
+
+    combined.sort((a, b) => {
+      const timeA = new Date(a.occurredAt).getTime();
+      const timeB = new Date(b.occurredAt).getTime();
+      const diff = sortOrder === "asc" ? timeA - timeB : timeB - timeA;
+      if (diff !== 0) return diff;
+      return sortOrder === "asc" ? a.id.localeCompare(b.id) : b.id.localeCompare(a.id);
+    });
+
+    const offset = (page - 1) * limit;
+    finalEntries = combined.slice(offset, offset + limit);
   } else {
     // Multi-stream: combine, sort deterministically, and slice window
     const combined = [
       ...normalizedPayments,
+      ...normalizedPackagePayments,
       ...normalizedExpenses,
       ...normalizedBudgetAudits,
     ];
@@ -453,7 +558,7 @@ export async function getUnifiedLedger(
         netCashFlow: netCashFlowDecimal.toFixed(2),
         totalBudgeted: totalBudgetedDecimal.toFixed(2),
         counts: {
-          payments: paymentCount,
+          payments: paymentCount + packagePaymentCount,
           expenses: expenseCount,
           budgetChanges: budgetAuditCount,
           total: totalItems,
@@ -470,3 +575,4 @@ export async function getUnifiedLedger(
     },
   };
 }
+
