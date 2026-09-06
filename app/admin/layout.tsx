@@ -180,11 +180,15 @@ function AdminSidebarContent({
   mobileMenuOpen,
   setMobileMenuOpen,
   handleLogout,
+  isCollapsed,
+  setIsCollapsed,
 }: {
   user: User;
   mobileMenuOpen: boolean;
   setMobileMenuOpen: (open: boolean) => void;
   handleLogout: () => void;
+  isCollapsed: boolean;
+  setIsCollapsed: (collapsed: boolean | ((prev: boolean) => boolean)) => void;
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -212,65 +216,142 @@ function AdminSidebarContent({
 
   return (
     <>
-      {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex flex-col w-64 bg-[#1e3a5f] text-white shrink-0 shadow-xl">
-        {/* Brand */}
-        <div className="h-16 flex items-center px-6 border-b border-slate-700/60 bg-[#162a45]">
-          <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-xl bg-blue-600 flex items-center justify-center font-bold text-white shadow-md text-base">
+      {/* Desktop Sidebar (Sticky Top-0 Viewport Lock & Collapsible Rail) */}
+      <aside
+        className={`hidden lg:flex flex-col sticky top-0 h-screen bg-[#1e3a5f] text-white shrink-0 shadow-xl z-20 transition-all duration-300 ease-in-out ${
+          isCollapsed ? "w-20" : "w-64"
+        }`}
+      >
+        {/* Brand & Toggle Button */}
+        <div
+          className={`h-16 flex items-center border-b border-slate-700/60 bg-[#162a45] transition-all duration-300 ${
+            isCollapsed ? "justify-center px-2" : "justify-between px-4"
+          }`}
+        >
+          <div className="flex items-center gap-3 overflow-hidden">
+            <div className="h-9 w-9 rounded-xl bg-blue-600 flex items-center justify-center font-bold text-white shadow-md text-base shrink-0">
               E
             </div>
-            <div>
-              <span className="font-bold text-lg tracking-tight text-white block leading-tight">
-                EduPulse
-              </span>
-              <span className="text-[10px] uppercase font-semibold text-blue-300 tracking-wider">
-                {roleTitle}
-              </span>
-            </div>
+            {!isCollapsed && (
+              <div className="min-w-0 transition-opacity duration-200">
+                <span className="font-bold text-lg tracking-tight text-white block leading-tight truncate">
+                  EduPulse
+                </span>
+                <span className="text-[10px] uppercase font-semibold text-blue-300 tracking-wider block truncate">
+                  {roleTitle}
+                </span>
+              </div>
+            )}
           </div>
+
+          {!isCollapsed && (
+            <button
+              type="button"
+              onClick={() => setIsCollapsed(true)}
+              title="Collapse Sidebar"
+              className="text-slate-400 hover:text-white hover:bg-slate-800/80 p-1.5 rounded-lg transition-colors cursor-pointer shrink-0"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+              </svg>
+            </button>
+          )}
         </div>
 
+        {/* Collapsed Expand Trigger Subheader */}
+        {isCollapsed && (
+          <div className="flex justify-center py-2 border-b border-slate-700/40 bg-[#162a45]/40">
+            <button
+              type="button"
+              onClick={() => setIsCollapsed(false)}
+              title="Expand Sidebar"
+              className="text-slate-400 hover:text-white hover:bg-slate-800/80 p-1.5 rounded-lg transition-colors cursor-pointer"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+              </svg>
+            </button>
+          </div>
+        )}
+
         {/* Navigation Items */}
-        <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
+        <nav className="flex-1 px-3 py-4 space-y-1.5 overflow-y-auto">
           {navItems.map((item) => {
             const isActive = checkIsActive(item.href);
 
             return (
-              <Link
-                key={item.name}
-                href={item.href}
-                className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                  isActive
-                    ? "bg-blue-600 text-white shadow-xs font-semibold"
-                    : "text-slate-300 hover:bg-slate-800/60 hover:text-white"
-                }`}
-              >
-                <span className={isActive ? "text-white" : "text-slate-400"}>
-                  {item.icon}
-                </span>
-                <span>{item.name}</span>
-              </Link>
+              <div key={item.name} className="relative group">
+                <Link
+                  href={item.href}
+                  title={isCollapsed ? item.name : undefined}
+                  className={`flex items-center rounded-xl text-sm font-medium transition-all ${
+                    isCollapsed
+                      ? "justify-center px-0 py-2.5 w-full"
+                      : "gap-3 px-3.5 py-2.5"
+                  } ${
+                    isActive
+                      ? "bg-blue-600 text-white shadow-xs font-semibold"
+                      : "text-slate-300 hover:bg-slate-800/60 hover:text-white"
+                  }`}
+                >
+                  <span className={`shrink-0 ${isActive ? "text-white" : "text-slate-400 group-hover:text-slate-200"}`}>
+                    {item.icon}
+                  </span>
+                  {!isCollapsed && (
+                    <span className="truncate">{item.name}</span>
+                  )}
+                </Link>
+
+                {/* Instant Floating CSS Tooltip for Collapsed Mode */}
+                {isCollapsed && (
+                  <div className="absolute left-full top-1/2 -translate-y-1/2 ml-3 hidden group-hover:flex items-center z-50 pointer-events-none">
+                    <div className="bg-slate-900 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg shadow-xl whitespace-nowrap border border-slate-700/80">
+                      {item.name}
+                    </div>
+                  </div>
+                )}
+              </div>
             );
           })}
         </nav>
 
         {/* Sidebar Footer User Info */}
-        <div className="p-4 border-t border-slate-700/60 bg-[#162a45]/50">
-          <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-full bg-blue-500/20 border border-blue-400/30 flex items-center justify-center font-semibold text-blue-300 text-sm shrink-0">
-              {user.firstName[0]}
-              {user.lastName[0]}
+        <div
+          className={`border-t border-slate-700/60 bg-[#162a45]/50 transition-all duration-300 ${
+            isCollapsed ? "p-3 flex justify-center" : "p-4"
+          }`}
+        >
+          {isCollapsed ? (
+            <div className="relative group">
+              <div className="h-9 w-9 rounded-full bg-blue-500/20 border border-blue-400/30 flex items-center justify-center font-semibold text-blue-300 text-sm cursor-default">
+                {user.firstName[0]}
+                {user.lastName[0]}
+              </div>
+              <div className="absolute left-full bottom-0 ml-3 hidden group-hover:flex items-center z-50 pointer-events-none">
+                <div className="bg-slate-900 text-white text-xs px-3 py-2 rounded-lg shadow-xl whitespace-nowrap border border-slate-700/80">
+                  <p className="font-semibold text-white">
+                    {user.firstName} {user.lastName}
+                  </p>
+                  <p className="text-[11px] text-slate-400">{user.email}</p>
+                </div>
+              </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-white truncate">
-                {user.firstName} {user.lastName}
-              </p>
-              <p className="text-[11px] text-slate-400 truncate">
-                {user.email}
-              </p>
+          ) : (
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-full bg-blue-500/20 border border-blue-400/30 flex items-center justify-center font-semibold text-blue-300 text-sm shrink-0">
+                {user.firstName[0]}
+                {user.lastName[0]}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-white truncate">
+                  {user.firstName} {user.lastName}
+                </p>
+                <p className="text-[11px] text-slate-400 truncate">
+                  {user.email}
+                </p>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </aside>
 
@@ -348,6 +429,7 @@ export default function AdminLayout({
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   // Self Change Password Modal State
   const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
@@ -357,6 +439,30 @@ export default function AdminLayout({
   const [submittingSelfPassword, setSubmittingSelfPassword] = useState(false);
   const [selfPasswordError, setSelfPasswordError] = useState("");
   const [selfPasswordSuccess, setSelfPasswordSuccess] = useState("");
+
+  // Hydrate collapsed preference from localStorage
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("edupulse_sidebar_collapsed");
+      if (stored === "true") {
+        setIsCollapsed(true);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  function handleToggleCollapsed(valueOrUpdater: boolean | ((prev: boolean) => boolean)) {
+    setIsCollapsed((prev) => {
+      const next = typeof valueOrUpdater === "function" ? valueOrUpdater(prev) : valueOrUpdater;
+      try {
+        localStorage.setItem("edupulse_sidebar_collapsed", String(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }
 
   async function handleSelfChangePassword(e: React.FormEvent) {
     e.preventDefault();
@@ -483,6 +589,8 @@ export default function AdminLayout({
           mobileMenuOpen={mobileMenuOpen}
           setMobileMenuOpen={setMobileMenuOpen}
           handleLogout={handleLogout}
+          isCollapsed={isCollapsed}
+          setIsCollapsed={handleToggleCollapsed}
         />
       </Suspense>
 
