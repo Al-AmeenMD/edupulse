@@ -86,12 +86,14 @@ export default function FinancialLedgerPage() {
     "UNIFORM",
     "EXAM",
     "MISCELLANEOUS",
+    "Fee Package",
     "Maintenance",
     "Supplies",
     "Utilities",
     "Salaries",
     "Budget Allocation",
   ];
+
 
   const fetchLedger = useCallback(async () => {
     try {
