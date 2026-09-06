@@ -23,18 +23,42 @@ export default function FinanceAdminsPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  // Modal State
+  // Add Modal State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [submittingAdd, setSubmittingAdd] = useState(false);
   const [addModalError, setAddModalError] = useState("");
 
-  // Form State
+  // Add Form State
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+
+  // Edit Modal State
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingAdmin, setEditingAdmin] = useState<FinanceAdminUser | null>(null);
+  const [editFirstName, setEditFirstName] = useState("");
+  const [editLastName, setEditLastName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [submittingEdit, setSubmittingEdit] = useState(false);
+  const [editModalError, setEditModalError] = useState("");
+
+  // Deactivate / Reactivate Modal State
+  const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
+  const [statusTargetAdmin, setStatusTargetAdmin] = useState<FinanceAdminUser | null>(null);
+  const [submittingStatus, setSubmittingStatus] = useState(false);
+  const [statusModalError, setStatusModalError] = useState("");
+
+  // Reset Password Modal State
+  const [isResetPasswordModalOpen, setIsResetPasswordModalOpen] = useState(false);
+  const [resetTargetAdmin, setResetTargetAdmin] = useState<FinanceAdminUser | null>(null);
+  const [resetGeneratedPassword, setResetGeneratedPassword] = useState("");
+  const [submittingResetPassword, setSubmittingResetPassword] = useState(false);
+  const [resetPasswordError, setResetPasswordError] = useState("");
+  const [resetPasswordSuccess, setResetPasswordSuccess] = useState<string | null>(null);
 
   const [currentSchoolId, setCurrentSchoolId] = useState<string | null>(null);
 
@@ -90,6 +114,9 @@ export default function FinanceAdminsPage() {
     }
   }, [router]);
 
+  // ---------------------------------------------------------------------------
+  // Create Finance Admin Handlers
+  // ---------------------------------------------------------------------------
   function handleOpenModal() {
     setFirstName("");
     setLastName("");
@@ -177,14 +204,130 @@ export default function FinanceAdminsPage() {
     }
   }
 
-  // Reset Password Modal State
-  const [isResetPasswordModalOpen, setIsResetPasswordModalOpen] = useState(false);
-  const [resetTargetAdmin, setResetTargetAdmin] = useState<FinanceAdminUser | null>(null);
-  const [resetGeneratedPassword, setResetGeneratedPassword] = useState("");
-  const [submittingResetPassword, setSubmittingResetPassword] = useState(false);
-  const [resetPasswordError, setResetPasswordError] = useState("");
-  const [resetPasswordSuccess, setResetPasswordSuccess] = useState<string | null>(null);
+  // ---------------------------------------------------------------------------
+  // Edit Finance Admin Handlers
+  // ---------------------------------------------------------------------------
+  function handleOpenEditModal(admin: FinanceAdminUser) {
+    setEditingAdmin(admin);
+    setEditFirstName(admin.firstName);
+    setEditLastName(admin.lastName);
+    setEditEmail(admin.email);
+    setEditPhone(admin.phone || "");
+    setEditModalError("");
+    setIsEditModalOpen(true);
+  }
 
+  async function handleSaveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingAdmin || !currentSchoolId) return;
+    setEditModalError("");
+
+    if (!editFirstName.trim() || !editLastName.trim() || !editEmail.trim()) {
+      setEditModalError("First name, last name, and email are required.");
+      return;
+    }
+
+    try {
+      setSubmittingEdit(true);
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) {
+        router.push("/login");
+        return;
+      }
+
+      const res = await fetch(`/api/schools/${currentSchoolId}/finance-admins/${editingAdmin.id}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          firstName: editFirstName.trim(),
+          lastName: editLastName.trim(),
+          email: editEmail.trim().toLowerCase(),
+          phone: editPhone.trim() || null,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.status === 409) {
+        setEditModalError("An account with this email address already exists.");
+        return;
+      }
+
+      if (!res.ok) {
+        setEditModalError(data.error || "Failed to update finance administrator.");
+        return;
+      }
+
+      setIsEditModalOpen(false);
+      setEditingAdmin(null);
+      setSuccess("Finance administrator updated successfully.");
+      loadData(currentSchoolId, token);
+    } catch (err: any) {
+      setEditModalError(err.message || "An error occurred while updating profile.");
+    } finally {
+      setSubmittingEdit(false);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Deactivate / Reactivate Handlers
+  // ---------------------------------------------------------------------------
+  function handleOpenStatusModal(admin: FinanceAdminUser) {
+    setStatusTargetAdmin(admin);
+    setStatusModalError("");
+    setIsStatusModalOpen(true);
+  }
+
+  async function handleConfirmStatusToggle() {
+    if (!statusTargetAdmin || !currentSchoolId) return;
+    setStatusModalError("");
+
+    const newStatus = !statusTargetAdmin.isActive;
+
+    try {
+      setSubmittingStatus(true);
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) {
+        router.push("/login");
+        return;
+      }
+
+      const res = await fetch(`/api/schools/${currentSchoolId}/finance-admins/${statusTargetAdmin.id}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          isActive: newStatus,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setStatusModalError(data.error || "Failed to update account status.");
+        return;
+      }
+
+      setIsStatusModalOpen(false);
+      const actionWord = newStatus ? "reactivated" : "deactivated";
+      setSuccess(`Finance administrator ${actionWord} successfully.`);
+      setStatusTargetAdmin(null);
+      loadData(currentSchoolId, token);
+    } catch (err: any) {
+      setStatusModalError(err.message || "An error occurred while updating status.");
+    } finally {
+      setSubmittingStatus(false);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Reset Password Handlers
+  // ---------------------------------------------------------------------------
   function generateAdminResetPassword() {
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
     const array = new Uint32Array(12);
@@ -286,23 +429,23 @@ export default function FinanceAdminsPage() {
 
       {/* Alerts */}
       {success && (
-        <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm font-medium flex items-center justify-between gap-3">
+        <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm font-medium flex items-center justify-between gap-3 animate-in fade-in duration-150">
           <div className="flex items-center gap-3">
             <svg className="w-5 h-5 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
             </svg>
             <span>{success}</span>
           </div>
-          <button onClick={() => setSuccess("")} className="text-emerald-700 hover:text-emerald-900 font-bold text-xs">
+          <button onClick={() => setSuccess("")} className="text-emerald-700 hover:text-emerald-900 font-bold text-xs cursor-pointer">
             Dismiss
           </button>
         </div>
       )}
 
       {error && (
-        <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-sm font-medium flex items-center justify-between gap-3">
+        <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-sm font-medium flex items-center justify-between gap-3 animate-in fade-in duration-150">
           <span>{error}</span>
-          <button onClick={() => setError("")} className="text-rose-700 hover:text-rose-900 font-bold text-xs">
+          <button onClick={() => setError("")} className="text-rose-700 hover:text-rose-900 font-bold text-xs cursor-pointer">
             Dismiss
           </button>
         </div>
@@ -346,13 +489,19 @@ export default function FinanceAdminsPage() {
                   <tr key={admin.id} className="hover:bg-slate-50/60 transition-colors">
                     <td className="py-4 px-6 font-semibold text-slate-900">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-blue-100 border border-blue-200 text-blue-700 font-bold text-xs flex items-center justify-center shrink-0">
+                        <div className={`w-8 h-8 rounded-full border font-bold text-xs flex items-center justify-center shrink-0 ${
+                          admin.isActive
+                            ? "bg-blue-100 border-blue-200 text-blue-700"
+                            : "bg-slate-100 border-slate-200 text-slate-500"
+                        }`}>
                           {admin.firstName[0]}
                           {admin.lastName[0]}
                         </div>
-                        <span>
-                          {admin.firstName} {admin.lastName}
-                        </span>
+                        <div>
+                          <span className={admin.isActive ? "text-slate-900" : "text-slate-500 line-through"}>
+                            {admin.firstName} {admin.lastName}
+                          </span>
+                        </div>
                       </div>
                     </td>
                     <td className="py-4 px-6 text-slate-600 font-mono text-xs">{admin.email}</td>
@@ -363,21 +512,49 @@ export default function FinanceAdminsPage() {
                       </span>
                     </td>
                     <td className="py-4 px-6">
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                        Active
-                      </span>
+                      {admin.isActive ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                          Active
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                          <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                          Deactivated
+                        </span>
+                      )}
                     </td>
                     <td className="py-4 px-6 text-slate-500 text-xs">
                       {new Date(admin.createdAt).toLocaleDateString()}
                     </td>
                     <td className="py-4 px-6 text-right text-xs">
-                      <button
-                        onClick={() => handleOpenResetPasswordModal(admin)}
-                        className="px-3 py-1.5 rounded-lg text-amber-700 hover:bg-amber-50 font-semibold border border-amber-200 transition-colors cursor-pointer"
-                      >
-                        Reset Password
-                      </button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditModal(admin)}
+                          className="px-2.5 py-1.5 rounded-lg text-slate-700 hover:bg-slate-100 font-semibold border border-slate-200 transition-colors cursor-pointer"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenStatusModal(admin)}
+                          className={`px-2.5 py-1.5 rounded-lg font-semibold border transition-colors cursor-pointer ${
+                            admin.isActive
+                              ? "text-rose-700 hover:bg-rose-50 border-rose-200"
+                              : "text-emerald-700 hover:bg-emerald-50 border-emerald-200"
+                          }`}
+                        >
+                          {admin.isActive ? "Deactivate" : "Reactivate"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenResetPasswordModal(admin)}
+                          className="px-2.5 py-1.5 rounded-lg text-amber-700 hover:bg-amber-50 font-semibold border border-amber-200 transition-colors cursor-pointer"
+                        >
+                          Reset Password
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -389,8 +566,8 @@ export default function FinanceAdminsPage() {
 
       {/* Creation Modal */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-6 relative border border-slate-100">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-6 relative border border-slate-100 animate-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b border-slate-100 pb-4">
               <div>
                 <h2 className="text-lg font-bold text-slate-900">Add Finance Administrator</h2>
@@ -400,10 +577,10 @@ export default function FinanceAdminsPage() {
               </div>
               <button
                 onClick={() => setIsAddModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100"
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 cursor-pointer"
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
@@ -451,12 +628,9 @@ export default function FinanceAdminsPage() {
                 <input
                   type="email"
                   required
-                  id="new_finance_admin_email"
-                  name="new_finance_admin_email"
-                  autoComplete="off"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="e.g. zainab@zenithacademy.com"
+                  placeholder="zainab.bello@school.edu"
                   className="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none"
                 />
               </div>
@@ -469,128 +643,311 @@ export default function FinanceAdminsPage() {
                   type="tel"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  placeholder="e.g. 08012345678"
+                  placeholder="+234 800 000 0000"
                   className="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none"
                 />
               </div>
 
-              {/* Password Section */}
-              <div className="space-y-1.5 pt-2 border-t border-slate-100">
-                <div className="flex items-center justify-between">
+              <div className="pt-2 border-t border-slate-100">
+                <div className="flex items-center justify-between mb-1">
                   <label className="block text-xs font-semibold text-slate-700">
-                    Account Password <span className="text-rose-500">* (Min 8 chars)</span>
+                    Initial Password <span className="text-rose-500">*</span>
                   </label>
                   <button
                     type="button"
                     onClick={handleGeneratePassword}
-                    className="text-xs text-blue-600 hover:text-blue-800 font-semibold cursor-pointer flex items-center gap-1"
+                    className="text-xs text-blue-600 hover:text-blue-700 font-semibold cursor-pointer"
                   >
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
-                    </svg>
-                    <span>Auto-generate Random Password</span>
+                    Generate Secure
                   </button>
                 </div>
-
                 <div className="relative">
                   <input
                     type={showPassword ? "text" : "password"}
                     required
-                    minLength={8}
-                    id="new_finance_admin_password"
-                    name="new_finance_admin_password"
-                    autoComplete="new-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none pr-10 font-mono"
+                    placeholder="Minimum 8 characters"
+                    className="w-full pl-3 pr-10 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none font-mono"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-medium"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
                   >
                     {showPassword ? "Hide" : "Show"}
                   </button>
                 </div>
               </div>
 
-              <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-100">
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                  className="px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={submittingAdd}
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:opacity-50 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors cursor-pointer inline-flex items-center gap-2"
+                  className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors shadow-xs disabled:opacity-50 cursor-pointer"
                 >
-                  {submittingAdd ? (
-                    <>
-                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      <span>Adding...</span>
-                    </>
-                  ) : (
-                    <span>Add Finance Admin</span>
-                  )}
+                  {submittingAdd ? "Creating..." : "Create Account"}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
-      {/* Reset Password Modal */}
-      {isResetPasswordModalOpen && resetTargetAdmin && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-5 border border-slate-100">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+
+      {/* Edit Profile Modal */}
+      {isEditModalOpen && editingAdmin && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-6 relative border border-slate-100 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
               <div>
-                <h3 className="text-lg font-bold text-slate-900">Reset Staff Password</h3>
+                <h2 className="text-lg font-bold text-slate-900">Edit Finance Administrator</h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Reset password for {resetTargetAdmin.firstName} {resetTargetAdmin.lastName} ({resetTargetAdmin.email})
+                  Update profile information for {editingAdmin.firstName} {editingAdmin.lastName}.
                 </p>
               </div>
               <button
-                onClick={() => setIsResetPasswordModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100"
+                onClick={() => {
+                  setIsEditModalOpen(false);
+                  setEditingAdmin(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 cursor-pointer"
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
 
+            {editModalError && (
+              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-medium">
+                {editModalError}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveEdit} autoComplete="off" className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    First Name <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editFirstName}
+                    onChange={(e) => setEditFirstName(e.target.value)}
+                    placeholder="e.g. Zainab"
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Last Name <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editLastName}
+                    onChange={(e) => setEditLastName(e.target.value)}
+                    placeholder="e.g. Bello"
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Email Address <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={editEmail}
+                  onChange={(e) => setEditEmail(e.target.value)}
+                  placeholder="zainab.bello@school.edu"
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Note: Updating email changes the user&apos;s login identifier.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Phone Number
+                </label>
+                <input
+                  type="tel"
+                  value={editPhone}
+                  onChange={(e) => setEditPhone(e.target.value)}
+                  placeholder="+234 800 000 0000"
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditModalOpen(false);
+                    setEditingAdmin(null);
+                  }}
+                  className="px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingEdit}
+                  className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors shadow-xs disabled:opacity-50 cursor-pointer"
+                >
+                  {submittingEdit ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Deactivate / Reactivate Confirmation Modal */}
+      {isStatusModalOpen && statusTargetAdmin && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-5 relative border border-slate-100 animate-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-3">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                statusTargetAdmin.isActive
+                  ? "bg-rose-100 text-rose-600"
+                  : "bg-emerald-100 text-emerald-600"
+              }`}>
+                {statusTargetAdmin.isActive ? (
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                  </svg>
+                ) : (
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
+                  </svg>
+                )}
+              </div>
+              <div className="flex-1">
+                <h3 className="text-base font-bold text-slate-900">
+                  {statusTargetAdmin.isActive ? "Deactivate Finance Administrator" : "Reactivate Finance Administrator"}
+                </h3>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  {statusTargetAdmin.isActive ? (
+                    <>
+                      Are you sure you want to deactivate <strong className="text-slate-800 font-semibold">{statusTargetAdmin.firstName} {statusTargetAdmin.lastName}</strong> ({statusTargetAdmin.email})? They will be unable to log in, but all historical financial records and payment attributions will be preserved.
+                    </>
+                  ) : (
+                    <>
+                      Are you sure you want to reactivate <strong className="text-slate-800 font-semibold">{statusTargetAdmin.firstName} {statusTargetAdmin.lastName}</strong> ({statusTargetAdmin.email})? They will regain access to financial management features immediately.
+                    </>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            {statusModalError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-medium">
+                {statusModalError}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsStatusModalOpen(false);
+                  setStatusTargetAdmin(null);
+                }}
+                className="px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmStatusToggle}
+                disabled={submittingStatus}
+                className={`px-5 py-2 text-sm font-semibold text-white rounded-xl transition-colors shadow-xs disabled:opacity-50 cursor-pointer ${
+                  statusTargetAdmin.isActive
+                    ? "bg-rose-600 hover:bg-rose-700"
+                    : "bg-emerald-600 hover:bg-emerald-700"
+                }`}
+              >
+                {submittingStatus
+                  ? "Processing..."
+                  : statusTargetAdmin.isActive
+                  ? "Deactivate Account"
+                  : "Reactivate Account"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Password Modal */}
+      {isResetPasswordModalOpen && resetTargetAdmin && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-6 relative border border-slate-100 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Reset Password</h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Generate a new temporary password for {resetTargetAdmin.firstName} {resetTargetAdmin.lastName}.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setIsResetPasswordModalOpen(false);
+                  setResetTargetAdmin(null);
+                  setResetPasswordSuccess(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 cursor-pointer"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {resetPasswordError && (
+              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-medium">
+                {resetPasswordError}
+              </div>
+            )}
+
             {resetPasswordSuccess ? (
               <div className="space-y-4">
-                <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 space-y-2">
-                  <div className="flex items-center gap-2 font-bold text-sm">
-                    <svg className="w-5 h-5 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 space-y-2">
+                  <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs">
+                    <svg className="w-4 h-4 text-emerald-600" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
                     </svg>
-                    <span>Password Reset Successfully!</span>
+                    <span>Password Reset Successful!</span>
                   </div>
-                  <p className="text-xs text-emerald-800">
-                    The staff member's password has been updated. Provide the new password below to the user.
+                  <p className="text-xs text-emerald-700">
+                    Provide this temporary password to the finance administrator. They will be required to change it upon next login.
                   </p>
-                  <div className="p-3 bg-white rounded-lg border border-emerald-300 flex items-center justify-between font-mono text-sm font-bold text-slate-900">
-                    <span>{resetPasswordSuccess}</span>
-                    <button
-                      type="button"
-                      onClick={() => navigator.clipboard.writeText(resetPasswordSuccess)}
-                      className="px-2.5 py-1 text-xs bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded-md font-sans transition-colors cursor-pointer"
-                    >
-                      Copy
-                    </button>
+                  <div className="p-2.5 bg-white rounded-lg border border-emerald-200 font-mono text-sm font-bold text-slate-900 select-all tracking-wider text-center">
+                    {resetPasswordSuccess}
                   </div>
                 </div>
-                <div className="flex justify-end">
+
+                <div className="flex justify-end pt-2">
                   <button
                     type="button"
-                    onClick={() => setIsResetPasswordModalOpen(false)}
-                    className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs"
+                    onClick={() => {
+                      setIsResetPasswordModalOpen(false);
+                      setResetTargetAdmin(null);
+                      setResetPasswordSuccess(null);
+                    }}
+                    className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors cursor-pointer shadow-xs"
                   >
                     Done
                   </button>
@@ -598,62 +955,49 @@ export default function FinanceAdminsPage() {
               </div>
             ) : (
               <form onSubmit={handleConfirmResetPassword} className="space-y-4">
-                {resetPasswordError && (
-                  <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-medium">
-                    {resetPasswordError}
-                  </div>
-                )}
+                <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs leading-relaxed">
+                  Resetting the password will immediately replace the user&apos;s current password and flag their account to require a password change on next login.
+                </div>
 
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
                     <label className="block text-xs font-semibold text-slate-700">
-                      New Generated Password
+                      New Temporary Password
                     </label>
                     <button
                       type="button"
                       onClick={generateAdminResetPassword}
-                      className="text-xs text-blue-600 hover:text-blue-800 font-semibold cursor-pointer flex items-center gap-1"
+                      className="text-xs text-blue-600 hover:text-blue-700 font-semibold cursor-pointer"
                     >
-                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
-                      </svg>
-                      <span>Regenerate</span>
+                      Generate New
                     </button>
                   </div>
                   <input
                     type="text"
                     required
-                    minLength={8}
                     value={resetGeneratedPassword}
                     onChange={(e) => setResetGeneratedPassword(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none font-mono font-semibold text-slate-900"
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none font-mono font-semibold"
                   />
-                  <p className="text-[11px] text-slate-500">
-                    Staff member will be prompted to set a personal password upon next login.
-                  </p>
                 </div>
 
-                <div className="pt-2 flex justify-end gap-3 border-t border-slate-100">
+                <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
                   <button
                     type="button"
-                    onClick={() => setIsResetPasswordModalOpen(false)}
-                    className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 font-semibold text-xs transition-colors"
+                    onClick={() => {
+                      setIsResetPasswordModalOpen(false);
+                      setResetTargetAdmin(null);
+                    }}
+                    className="px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={submittingResetPassword}
-                    className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-semibold text-xs transition-colors shadow-xs disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                    className="px-5 py-2 text-sm font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-xl transition-colors shadow-xs disabled:opacity-50 cursor-pointer"
                   >
-                    {submittingResetPassword ? (
-                      <>
-                        <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                        <span>Resetting...</span>
-                      </>
-                    ) : (
-                      <span>Confirm Reset Password</span>
-                    )}
+                    {submittingResetPassword ? "Resetting..." : "Confirm Reset"}
                   </button>
                 </div>
               </form>
