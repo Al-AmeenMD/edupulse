@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState, useTransition, useMemo } from "react";
+
 import { useSearchParams, useRouter } from "next/navigation";
 
 interface ClassItem {
@@ -44,6 +45,12 @@ interface SummaryData {
   }>;
 }
 
+function getCurrentAcademicYear(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = date.getMonth(); // 0-indexed, 8 = September
+  return month >= 8 ? `${year}/${year + 1}` : `${year - 1}/${year}`;
+}
+
 export default function TeacherAttendancePage() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -54,6 +61,14 @@ export default function TeacherAttendancePage() {
   const [selectedDate, setSelectedDate] = useState(() => {
     return new Date().toISOString().split("T")[0];
   });
+
+  // Attendance Summary Filter State
+  const [filterMode, setFilterMode] = useState<"MONTHLY" | "TERMLY" | "CUSTOM">("MONTHLY");
+  const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7)); // YYYY-MM
+  const [selectedYear, setSelectedYear] = useState(() => getCurrentAcademicYear());
+  const [selectedTerm, setSelectedTerm] = useState("First Term");
+  const [customStartDate, setCustomStartDate] = useState("");
+  const [customEndDate, setCustomEndDate] = useState("");
 
   const [students, setStudents] = useState<StudentItem[]>([]);
   // Map of studentId -> { status, note }
@@ -71,6 +86,48 @@ export default function TeacherAttendancePage() {
 
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+
+  const resolvedSummaryDates = useMemo(() => {
+    if (filterMode === "MONTHLY") {
+      if (!selectedMonth) return { startDate: "", endDate: "" };
+      const [yStr, mStr] = selectedMonth.split("-");
+      const year = parseInt(yStr, 10);
+      const month = parseInt(mStr, 10);
+      if (isNaN(year) || isNaN(month)) return { startDate: "", endDate: "" };
+
+      const startDate = `${yStr}-${mStr.padStart(2, "0")}-01`;
+      const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+      const endDate = `${yStr}-${mStr.padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+      return { startDate, endDate };
+    }
+
+    if (filterMode === "TERMLY") {
+      const startYearNum = parseInt(selectedYear.split("/")[0], 10) || new Date().getFullYear();
+      const endYearNum = startYearNum + 1;
+
+      if (selectedTerm === "First Term" || selectedTerm === "Term 1") {
+        return {
+          startDate: `${startYearNum}-09-01`,
+          endDate: `${startYearNum}-12-31`,
+        };
+      }
+      if (selectedTerm === "Second Term" || selectedTerm === "Term 2") {
+        return {
+          startDate: `${endYearNum}-01-01`,
+          endDate: `${endYearNum}-04-30`,
+        };
+      }
+      return {
+        startDate: `${endYearNum}-05-01`,
+        endDate: `${endYearNum}-08-31`,
+      };
+    }
+
+    return {
+      startDate: customStartDate,
+      endDate: customEndDate,
+    };
+  }, [filterMode, selectedMonth, selectedYear, selectedTerm, customStartDate, customEndDate]);
 
   // 1. Fetch assigned classes on mount
   useEffect(() => {
@@ -191,7 +248,7 @@ export default function TeacherAttendancePage() {
     };
   }, [selectedClassId, selectedDate]);
 
-  // 4. Fetch Monthly Summary for selected class
+  // 4. Fetch Attendance Summary with Resolved Date Filters
   useEffect(() => {
     if (!selectedClassId) return;
 
@@ -202,7 +259,12 @@ export default function TeacherAttendancePage() {
     async function loadSummary() {
       try {
         setLoadingSummary(true);
-        const res = await fetch(`/api/attendance/summary?classId=${selectedClassId}`, {
+        const params = new URLSearchParams();
+        params.append("classId", selectedClassId);
+        if (resolvedSummaryDates.startDate) params.append("startDate", resolvedSummaryDates.startDate);
+        if (resolvedSummaryDates.endDate) params.append("endDate", resolvedSummaryDates.endDate);
+
+        const res = await fetch(`/api/attendance/summary?${params.toString()}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
 
@@ -226,7 +288,8 @@ export default function TeacherAttendancePage() {
     return () => {
       isSubscribed = false;
     };
-  }, [selectedClassId, successMessage]);
+  }, [selectedClassId, resolvedSummaryDates, successMessage]);
+
 
   // Handler: Change single student status
   function handleStatusChange(studentId: string, status: "PRESENT" | "ABSENT" | "LATE" | "EXCUSED") {
@@ -614,23 +677,116 @@ export default function TeacherAttendancePage() {
         </div>
       </form>
 
-      {/* Monthly Attendance Summary Section */}
+      {/* Attendance Summary & Statistics Section */}
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-6 space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-4">
           <div>
             <h3 className="text-base font-bold text-slate-900">
-              Monthly Attendance Summary
+              Attendance Statistics & Performance
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Attendance performance rate for {currentClassObj?.name || "Selected Class"} this month.
+              Attendance performance rate for {currentClassObj?.name || "Selected Class"}.
             </p>
           </div>
           {summary?.period && (
-            <span className="text-xs font-mono font-medium text-slate-500 bg-slate-100 px-3 py-1 rounded-full">
+            <span className="text-xs font-mono font-medium text-slate-600 bg-slate-100 px-3 py-1 rounded-full self-start md:self-auto">
               {summary.period.startDate} to {summary.period.endDate}
             </span>
           )}
         </div>
+
+        {/* Filter Period Toolbar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50/80 p-3 rounded-xl border border-slate-100">
+          <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-200/60 rounded-xl text-xs font-bold">
+            <button
+              type="button"
+              onClick={() => setFilterMode("MONTHLY")}
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                filterMode === "MONTHLY" ? "bg-white text-blue-700 shadow-2xs" : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Monthly
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterMode("TERMLY")}
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                filterMode === "TERMLY" ? "bg-white text-blue-700 shadow-2xs" : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Termly
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterMode("CUSTOM")}
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                filterMode === "CUSTOM" ? "bg-white text-blue-700 shadow-2xs" : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Custom Range
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
+            {filterMode === "MONTHLY" && (
+              <input
+                type="month"
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+              />
+            )}
+
+            {filterMode === "TERMLY" && (
+              <div className="flex items-center gap-2">
+                <select
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(e.target.value)}
+                  className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                >
+                  <option value={selectedYear}>{selectedYear}</option>
+                  {Array.from(new Set(classes.map((c) => c.academicYear)))
+                    .filter((y) => y && y !== selectedYear)
+                    .map((y) => (
+                      <option key={y} value={y}>
+                        {y}
+                      </option>
+                    ))}
+                </select>
+                <select
+                  value={selectedTerm}
+                  onChange={(e) => setSelectedTerm(e.target.value)}
+                  className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                >
+                  <option value="First Term">First Term (Sep - Dec)</option>
+                  <option value="Second Term">Second Term (Jan - Apr)</option>
+                  <option value="Third Term">Third Term (May - Aug)</option>
+                </select>
+              </div>
+            )}
+
+            {filterMode === "CUSTOM" && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={customStartDate}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  placeholder="From"
+                  className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <span className="text-slate-400 font-bold">to</span>
+                <input
+                  type="date"
+                  value={customEndDate}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  placeholder="To"
+                  className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            )}
+          </div>
+        </div>
+
 
         {loadingSummary ? (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
