@@ -342,6 +342,6 @@ export const GET = withAuth(
       );
     }
   },
-  [Role.TEACHER, Role.SCHOOL_ADMIN]
+  [Role.TEACHER]
 );
 
