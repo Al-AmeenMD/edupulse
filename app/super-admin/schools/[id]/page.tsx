@@ -34,6 +34,17 @@ interface SchoolAdmin {
   updatedAt: string;
 }
 
+interface ProprietorUser {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone?: string | null;
+  role: string;
+  isActive: boolean;
+  createdAt: string;
+}
+
 export default function SchoolDetailPage() {
   const router = useRouter();
   const params = useParams();
@@ -46,8 +57,22 @@ export default function SchoolDetailPage() {
   const [adminsLoading, setAdminsLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Tab state: 'overview' | 'admins'
-  const [activeTab, setActiveTab] = useState<"overview" | "admins">("overview");
+  // Tab state: 'overview' | 'admins' | 'proprietors'
+  const [activeTab, setActiveTab] = useState<"overview" | "admins" | "proprietors">("overview");
+
+  // Proprietors state
+  const [proprietors, setProprietors] = useState<ProprietorUser[]>([]);
+  const [proprietorsLoading, setProprietorsLoading] = useState(false);
+  const [showAddProprietorModal, setShowAddProprietorModal] = useState(false);
+  const [addProprietorForm, setAddProprietorForm] = useState({
+    email: "",
+    firstName: "",
+    lastName: "",
+    phone: "",
+    password: "",
+  });
+  const [proprietorSubmitting, setProprietorSubmitting] = useState(false);
+  const [proprietorError, setProprietorError] = useState("");
 
   // Inline editing state for School details
   const [isEditing, setIsEditing] = useState(false);
@@ -209,15 +234,84 @@ export default function SchoolDetailPage() {
     }
   }, [schoolId]);
 
+  // Fetch school proprietors list
+  const fetchSchoolProprietors = useCallback(async () => {
+    if (!schoolId) return;
+    try {
+      setProprietorsLoading(true);
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) return;
+
+      const res = await fetch(`/api/schools/${schoolId}/proprietor`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || "Failed to load school proprietors");
+      }
+
+      const json = await res.json();
+      setProprietors(json.data || []);
+    } catch (err: any) {
+      console.error("Error loading proprietors:", err);
+    } finally {
+      setProprietorsLoading(false);
+    }
+  }, [schoolId]);
+
   useEffect(() => {
     fetchSchoolDetail();
-  }, [fetchSchoolDetail]);
+    fetchSchoolAdmins();
+  }, [fetchSchoolDetail, fetchSchoolAdmins]);
 
   useEffect(() => {
     if (activeTab === "admins") {
       fetchSchoolAdmins();
+    } else if (activeTab === "proprietors") {
+      fetchSchoolProprietors();
     }
-  }, [activeTab, fetchSchoolAdmins]);
+  }, [activeTab, fetchSchoolAdmins, fetchSchoolProprietors]);
+
+
+  async function handleAddProprietorSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setProprietorError("");
+    if (!addProprietorForm.email.trim()) {
+      setProprietorError("Email address is required");
+      return;
+    }
+
+    try {
+      setProprietorSubmitting(true);
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) return;
+
+      const res = await fetch(`/api/schools/${schoolId}/proprietor`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(addProprietorForm),
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.error || "Failed to link/create Proprietor");
+      }
+
+      setShowAddProprietorModal(false);
+      setAddProprietorForm({ email: "", firstName: "", lastName: "", phone: "", password: "" });
+      fetchSchoolProprietors();
+    } catch (err: any) {
+      setProprietorError(err.message || "Failed to add proprietor");
+    } finally {
+      setProprietorSubmitting(false);
+    }
+  }
 
   // Save Inline Edit for School metadata
   async function handleSaveInlineEdit(e: React.FormEvent) {
@@ -543,7 +637,19 @@ export default function SchoolDetailPage() {
               : "border-transparent text-slate-500 hover:text-slate-800"
           }`}
         >
-          School Administrators ({admins.length || school._count?.users || 0})
+          School Administrators ({admins.length})
+
+        </button>
+
+        <button
+          onClick={() => setActiveTab("proprietors")}
+          className={`pb-4 text-sm font-semibold border-b-2 transition-colors cursor-pointer ${
+            activeTab === "proprietors"
+              ? "border-blue-600 text-blue-600"
+              : "border-transparent text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          School Owners / Proprietors ({proprietors.length})
         </button>
       </div>
 
@@ -785,6 +891,223 @@ export default function SchoolDetailPage() {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* TAB 3: PROPRIETORS */}
+      {activeTab === "proprietors" && (
+        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+          <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">School Owners & Proprietors</h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Proprietor accounts with multi-school governance and executive oversight access.
+              </p>
+            </div>
+
+            <button
+              onClick={() => {
+                setProprietorError("");
+                setShowAddProprietorModal(true);
+              }}
+              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs transition-colors cursor-pointer shrink-0"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+              Link / Create Proprietor
+            </button>
+          </div>
+
+          {proprietorsLoading ? (
+            <div className="p-6 space-y-3">
+              {[1, 2].map((i) => (
+                <div key={i} className="h-12 bg-slate-100 animate-pulse rounded-lg" />
+              ))}
+            </div>
+          ) : proprietors.length === 0 ? (
+            <div className="p-12 text-center">
+              <div className="mx-auto w-12 h-12 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 mb-3">
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17.982 18.725A7.488 7.488 0 0 0 12 15.75a7.488 7.488 0 0 0-5.982 2.975m11.963 0a9 9 0 1 0-11.963 0m11.963 0A8.966 8.966 0 0 1 12 21a8.966 8.966 0 0 1-5.982-2.275M15 9.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                </svg>
+              </div>
+              <h3 className="text-sm font-semibold text-slate-800">No Proprietors linked to this school</h3>
+              <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                Link an existing Proprietor by email address or create a new Proprietor account.
+              </p>
+              <button
+                onClick={() => {
+                  setProprietorError("");
+                  setShowAddProprietorModal(true);
+                }}
+                className="mt-4 px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors cursor-pointer"
+              >
+                + Link / Create Proprietor
+              </button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50/80 border-b border-slate-200/80 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    <th className="px-6 py-3.5">Proprietor Name</th>
+                    <th className="px-6 py-3.5">Email</th>
+                    <th className="px-6 py-3.5">Phone</th>
+                    <th className="px-6 py-3.5">Role</th>
+                    <th className="px-6 py-3.5">Status</th>
+                    <th className="px-6 py-3.5">Linked Date</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-sm">
+                  {proprietors.map((p) => (
+                    <tr key={p.id} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="px-6 py-3.5 font-semibold text-slate-900">
+                        {p.firstName} {p.lastName}
+                      </td>
+                      <td className="px-6 py-3.5 text-slate-600 font-mono text-xs">{p.email}</td>
+                      <td className="px-6 py-3.5 text-slate-500 text-xs">{p.phone || "N/A"}</td>
+                      <td className="px-6 py-3.5 font-mono">
+                        <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 font-bold text-[11px]">
+                          {p.role}
+                        </span>
+                      </td>
+                      <td className="px-6 py-3.5">
+                        {p.isActive ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            Active
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+                            Inactive
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-6 py-3.5 text-xs text-slate-500">
+                        {new Date(p.createdAt).toLocaleDateString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ================================================================== */}
+      {/* MODAL: Link / Create Proprietor                                     */}
+      {/* ================================================================== */}
+      {showAddProprietorModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Link or Create Proprietor</h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Assign a Proprietor to <strong>{school.name}</strong>
+                </p>
+              </div>
+              <button
+                onClick={() => setShowAddProprietorModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <form onSubmit={handleAddProprietorSubmit} className="p-6 space-y-4">
+              {proprietorError && (
+                <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-medium">
+                  {proprietorError}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Proprietor Email <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="email"
+                  required
+                  placeholder="owner@school.com"
+                  value={addProprietorForm.email}
+                  onChange={(e) => setAddProprietorForm({ ...addProprietorForm, email: e.target.value })}
+                  className="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-600 transition-all font-mono"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  If an account already exists with this email, it will be linked. Otherwise, fill in details below to create a new Proprietor.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">First Name</label>
+                  <input
+                    type="text"
+                    placeholder="First Name"
+                    value={addProprietorForm.firstName}
+                    onChange={(e) => setAddProprietorForm({ ...addProprietorForm, firstName: e.target.value })}
+                    className="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-600 transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Last Name</label>
+                  <input
+                    type="text"
+                    placeholder="Last Name"
+                    value={addProprietorForm.lastName}
+                    onChange={(e) => setAddProprietorForm({ ...addProprietorForm, lastName: e.target.value })}
+                    className="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-600 transition-all"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Phone Number</label>
+                  <input
+                    type="tel"
+                    placeholder="+234 800 000 0000"
+                    value={addProprietorForm.phone}
+                    onChange={(e) => setAddProprietorForm({ ...addProprietorForm, phone: e.target.value })}
+                    className="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-600 transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Password (If new)</label>
+                  <input
+                    type="password"
+                    placeholder="••••••••"
+                    value={addProprietorForm.password}
+                    onChange={(e) => setAddProprietorForm({ ...addProprietorForm, password: e.target.value })}
+                    className="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-600 transition-all font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowAddProprietorModal(false)}
+                  className="px-4 py-2.5 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={proprietorSubmitting}
+                  className="px-5 py-2.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-2 disabled:opacity-50"
+                >
+                  {proprietorSubmitting ? "Linking..." : "Link / Create Proprietor"}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 

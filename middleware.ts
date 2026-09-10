@@ -7,10 +7,12 @@ const ROLE_REDIRECTS: Record<string, string> = {
   SCHOOL_ADMIN: "/admin/dashboard",
   TEACHER: "/teacher/dashboard",
   FINANCE_ADMIN: "/admin/finance-dashboard",
+  PROPRIETOR: "/proprietor/dashboard",
 };
 
 const ROUTE_ROLE_MAP: Array<{ prefix: string; allowedRoles: string[] }> = [
   { prefix: "/super-admin", allowedRoles: ["SUPER_ADMIN"] },
+  { prefix: "/proprietor", allowedRoles: ["PROPRIETOR"] },
   { prefix: "/admin/finance-dashboard", allowedRoles: ["FINANCE_ADMIN", "SCHOOL_ADMIN"] },
   { prefix: "/admin/fees", allowedRoles: ["FINANCE_ADMIN", "SCHOOL_ADMIN"] },
   { prefix: "/admin/reports", allowedRoles: ["FINANCE_ADMIN", "SCHOOL_ADMIN"] },
@@ -63,6 +65,7 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     "/super-admin/:path*",
+    "/proprietor/:path*",
     "/admin/:path*",
     "/teacher/:path*",
     "/login",

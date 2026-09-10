@@ -2,11 +2,21 @@
 
 import { useEffect, useState } from "react";
 
+interface ProprietorInfo {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone?: string | null;
+  isActive: boolean;
+}
+
 interface SchoolSettings {
   id: string;
   name: string;
   studentIdTemplate: string;
   studentIdPrefix: string;
+  proprietors?: ProprietorInfo[];
   _count?: {
     students: number;
   };
@@ -17,6 +27,7 @@ export default function AdminSettingsPage() {
   const [prefix, setPrefix] = useState("STU");
   const [template, setTemplate] = useState("{PREFIX}/{YEAR}/{SEQ:3}");
   const [studentCount, setStudentCount] = useState(0);
+  const [proprietors, setProprietors] = useState<ProprietorInfo[]>([]);
 
   const [debouncedPrefix, setDebouncedPrefix] = useState("STU");
   const [debouncedTemplate, setDebouncedTemplate] = useState("{PREFIX}/{YEAR}/{SEQ:3}");
@@ -106,6 +117,7 @@ export default function AdminSettingsPage() {
         setPrefix(school.studentIdPrefix || "STU");
         setTemplate(school.studentIdTemplate || "{PREFIX}/{YEAR}/{SEQ:3}");
         setStudentCount(school._count?.students || 0);
+        setProprietors(school.proprietors || []);
 
         setDebouncedPrefix(school.studentIdPrefix || "STU");
         setDebouncedTemplate(school.studentIdTemplate || "{PREFIX}/{YEAR}/{SEQ:3}");
@@ -472,6 +484,52 @@ export default function AdminSettingsPage() {
             </button>
           </div>
         </form>
+      </div>
+
+      {/* School Ownership & Governance Card (Read-Only) */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+        <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">School Ownership & Governance</h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Read-only view of linked Proprietors / School Owners governing this institution.
+            </p>
+          </div>
+          <span className="text-xs font-semibold px-3 py-1 bg-indigo-50 text-indigo-700 rounded-full border border-indigo-100">
+            {proprietors.length} {proprietors.length === 1 ? "Owner" : "Owners"}
+          </span>
+        </div>
+
+        <div className="p-6">
+          {proprietors.length === 0 ? (
+            <div className="text-center py-6 text-slate-500 text-xs">
+              No Proprietors linked to this school institution.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {proprietors.map((p) => (
+                <div key={p.id} className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center shrink-0">
+                    {p.firstName[0]}
+                    {p.lastName[0]}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="font-semibold text-slate-900 text-sm truncate">
+                        {p.firstName} {p.lastName}
+                      </p>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-indigo-100 text-indigo-800">
+                        Proprietor
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 font-mono truncate">{p.email}</p>
+                    {p.phone && <p className="text-xs text-slate-400 mt-0.5">{p.phone}</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

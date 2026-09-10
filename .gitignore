@@ -54,3 +54,6 @@ proxy.ts
 
 # Markdown files
 *.md
+
+# Scratch directory
+/scratch/

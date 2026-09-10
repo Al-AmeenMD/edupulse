@@ -1,6 +1,7 @@
 import { Role } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { hashPassword } from "@/lib/auth";
+import { validateProprietorSchoolAccess } from "@/lib/auth/proprietor";
 import { withAuth } from "@/lib/middleware/withAuth";
 import { prisma } from "@/lib/prisma";
 
@@ -13,6 +14,14 @@ type RouteContext = {
 export const POST = withAuth(async (req, context) => {
   try {
     const { id } = (await context.params) as Awaited<RouteContext["params"]>;
+
+    if (req.user.role === "PROPRIETOR") {
+      const hasAccess = await validateProprietorSchoolAccess(req.user.userId, id);
+      if (!hasAccess) {
+        return NextResponse.json({ error: "Forbidden: You do not own this school" }, { status: 403 });
+      }
+    }
+
     const body = (await req.json()) as {
       firstName?: string;
       lastName?: string;
@@ -78,7 +87,7 @@ export const POST = withAuth(async (req, context) => {
         email,
         phone,
         password: hashedPassword,
-        role: Role.SCHOOL_ADMIN,
+        role: Role.SCHOOL_ADMIN, // Server-side hardcoded role
         schoolId: id,
       },
       select: {
@@ -102,11 +111,18 @@ export const POST = withAuth(async (req, context) => {
       { status: 500 }
     );
   }
-}, [Role.SUPER_ADMIN]);
+}, [Role.SUPER_ADMIN, "PROPRIETOR" as Role]);
 
-export const GET = withAuth(async (_req, context) => {
+export const GET = withAuth(async (req, context) => {
   try {
     const { id } = (await context.params) as Awaited<RouteContext["params"]>;
+
+    if (req.user.role === "PROPRIETOR") {
+      const hasAccess = await validateProprietorSchoolAccess(req.user.userId, id);
+      if (!hasAccess) {
+        return NextResponse.json({ error: "Forbidden: You do not own this school" }, { status: 403 });
+      }
+    }
 
     const school = await prisma.school.findUnique({
       where: { id },
@@ -146,4 +162,4 @@ export const GET = withAuth(async (_req, context) => {
       { status: 500 }
     );
   }
-}, [Role.SUPER_ADMIN]);
+}, [Role.SUPER_ADMIN, "PROPRIETOR" as Role]);

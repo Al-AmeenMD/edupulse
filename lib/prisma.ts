@@ -24,17 +24,25 @@ const pool =
 
 const adapter = new PrismaPg(pool);
 
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    adapter,
-    log: ["error"],
-  });
-
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
-  globalForPrisma.prismaPool = pool;
+function getFreshClient(): PrismaClient {
+  if (globalForPrisma.prisma && (globalForPrisma.prisma as any).proprietorSchool) {
+    return globalForPrisma.prisma;
+  }
+  const client = new PrismaClient({ adapter, log: ["error"] });
+  if (process.env.NODE_ENV !== "production") {
+    globalForPrisma.prisma = client;
+    globalForPrisma.prismaPool = pool;
+  }
+  return client;
 }
+
+export const prisma = new Proxy({} as PrismaClient, {
+  get(_target, prop) {
+    const client = getFreshClient();
+    const value = (client as any)[prop];
+    return typeof value === "function" ? value.bind(client) : value;
+  },
+});
 // HMR cache refresh for Budget schema update
 
 

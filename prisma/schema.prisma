@@ -35,6 +35,7 @@ model School {
   budgets       Budget[]
   feePackages   FeePackage[]
   packagePayments PackagePayment[]
+  proprietorSchools ProprietorSchool[] @relation("ProprietorSchools")
 
   @@map("schools")
 }
@@ -46,6 +47,7 @@ enum Role {
   TEACHER
   PARENT
   STUDENT
+  PROPRIETOR
 }
 
 model User {
@@ -67,8 +69,23 @@ model User {
   school        School?   @relation(fields: [schoolId], references: [id])
   teacher       Teacher?
   sessions      Session[]
+  proprietorSchools ProprietorSchool[] @relation("ProprietorSchools")
 
   @@map("users")
+}
+
+model ProprietorSchool {
+  id           String   @id @default(cuid())
+  proprietorId String
+  schoolId     String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  proprietor   User     @relation("ProprietorSchools", fields: [proprietorId], references: [id], onDelete: Cascade)
+  school       School   @relation("ProprietorSchools", fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@unique([proprietorId, schoolId])
+  @@map("proprietor_schools")
 }
 
 model Session {

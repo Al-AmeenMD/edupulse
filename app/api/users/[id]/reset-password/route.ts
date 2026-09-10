@@ -1,6 +1,7 @@
 import { Role } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { hashPassword } from "@/lib/auth";
+import { validateProprietorSchoolAccess } from "@/lib/auth/proprietor";
 import { withAuth } from "@/lib/middleware/withAuth";
 import { prisma } from "@/lib/prisma";
 
@@ -69,6 +70,25 @@ export const POST = withAuth(async (req, context) => {
       }
 
       // Note: SUPER_ADMIN is NOT schoolId-scoped (operates globally across all schools)
+    } else if (req.user.role === "PROPRIETOR") {
+      // PROPRIETOR Scoping Rules:
+      // 1. Target must be SCHOOL_ADMIN
+      if (targetUser.role !== "SCHOOL_ADMIN") {
+        return NextResponse.json(
+          { error: "Forbidden: Proprietors can only reset passwords for School Administrators" },
+          { status: 403 }
+        );
+      }
+
+      // 2. Must own target's school
+      if (!targetUser.schoolId) {
+        return NextResponse.json({ error: "User not found" }, { status: 404 });
+      }
+
+      const hasAccess = await validateProprietorSchoolAccess(req.user.userId, targetUser.schoolId);
+      if (!hasAccess) {
+        return NextResponse.json({ error: "Forbidden: You do not own this school" }, { status: 403 });
+      }
     } else if (req.user.role === Role.SCHOOL_ADMIN) {
       // SCHOOL_ADMIN Scoping Rules:
       // 1. Tenant Isolation: Must belong to caller's school
@@ -133,4 +153,4 @@ export const POST = withAuth(async (req, context) => {
       { status: 500 }
     );
   }
-}, [Role.SCHOOL_ADMIN, Role.SUPER_ADMIN]);
+}, [Role.SCHOOL_ADMIN, Role.SUPER_ADMIN, "PROPRIETOR" as Role]);

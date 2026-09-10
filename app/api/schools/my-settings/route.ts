@@ -27,6 +27,19 @@ export const GET = withAuth(
               students: true,
             },
           },
+          proprietorSchools: {
+            select: {
+              proprietor: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true,
+                  phone: true,
+                },
+              },
+            },
+          },
         },
       });
 
@@ -34,7 +47,17 @@ export const GET = withAuth(
         return NextResponse.json({ error: "School not found" }, { status: 404 });
       }
 
-      return NextResponse.json({ data: school }, { status: 200 });
+      const proprietors = school.proprietorSchools.map((ps) => ps.proprietor);
+
+      return NextResponse.json(
+        {
+          data: {
+            ...school,
+            proprietors,
+          },
+        },
+        { status: 200 }
+      );
     } catch {
       return NextResponse.json(
         { error: "Internal server error" },
