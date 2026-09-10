@@ -604,7 +604,7 @@ export default function ProprietorSchoolGovernancePage() {
             ) : (
               <form onSubmit={handleResetPasswordSubmit} className="space-y-4">
                 <p className="text-xs text-slate-500">
-                  Set a new temporary password for <span className="font-semibold text-slate-700">{resetAdmin.email}</span>. The administrator will be flagged with <code className="font-bold text-amber-700">mustChangePassword</code>.
+                  Set a new temporary password for <span className="font-semibold text-slate-700">{resetAdmin.email}</span>. They&apos;ll be required to set a new password the next time they log in.
                 </p>
 
                 <div>
