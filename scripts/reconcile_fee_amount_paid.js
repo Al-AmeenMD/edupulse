@@ -78,12 +78,7 @@ async function reconcileFees() {
         targetStatus = "PARTIAL";
         targetPaidAt = null;
       } else {
-        const dueDate = new Date(fee.dueDate);
-        if (dueDate < now) {
-          targetStatus = "OVERDUE";
-        } else {
-          targetStatus = "PENDING";
-        }
+        targetStatus = "PENDING";
         targetPaidAt = null;
       }
     }
