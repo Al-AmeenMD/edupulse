@@ -38,7 +38,7 @@ export const GET = withAuth(
 
         // 2. Total Collected aggregate (sum of Payment.amount for school's fees)
         prisma.payment.aggregate({
-          where: { fee: { schoolId } },
+          where: { fee: { schoolId }, deletedAt: null },
           _sum: { amount: true },
         }),
 
@@ -69,7 +69,7 @@ export const GET = withAuth(
 
         // 6. Recent 10 Payments (ordered by paidAt desc)
         prisma.payment.findMany({
-          where: { fee: { schoolId } },
+          where: { fee: { schoolId }, deletedAt: null },
           orderBy: { paidAt: "desc" },
           take: 10,
           include: {

@@ -270,6 +270,7 @@ export const GET = withAuth(
             },
           },
           payments: {
+            where: { deletedAt: null },
             select: {
               id: true,
               amount: true,

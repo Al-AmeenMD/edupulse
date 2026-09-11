@@ -118,6 +118,163 @@ export async function getNextPaymentSequenceBase(
 }
 
 /**
+ * Recalculates and updates Fee.amountPaid, Fee.status, and Fee.paidAt based on the live sum
+ * of all active (deletedAt === null) Payment records associated with the fee.
+ * Preserves WAIVED status if the fee was explicitly waived.
+ */
+export async function recalculateFeeState(
+  feeId: string,
+  tx: Prisma.TransactionClient
+): Promise<Fee> {
+  const fee = await tx.fee.findUnique({
+    where: { id: feeId },
+    select: {
+      id: true,
+      amountDue: true,
+      status: true,
+      paidAt: true,
+    },
+  });
+
+  if (!fee) {
+    throw new FeePaymentError("Fee not found for recalculation", 404);
+  }
+
+  // Aggregate all active payments (deletedAt IS NULL)
+  const activePayments = await tx.payment.findMany({
+    where: {
+      feeId,
+      deletedAt: null,
+    },
+    orderBy: { paidAt: "desc" },
+    select: {
+      amount: true,
+      paidAt: true,
+    },
+  });
+
+  const amountDue = new Prisma.Decimal(fee.amountDue);
+  const totalPaid = activePayments.reduce(
+    (sum, p) => sum.add(new Prisma.Decimal(p.amount)),
+    new Prisma.Decimal(0)
+  );
+
+  let newStatus: "PAID" | "PARTIAL" | "PENDING" | "OVERDUE" | "WAIVED";
+  let paidAt: Date | null = null;
+
+  if (fee.status === "WAIVED") {
+    // Preserve WAIVED status unconditionally
+    newStatus = "WAIVED";
+    paidAt = fee.paidAt;
+  } else if (totalPaid.greaterThanOrEqualTo(amountDue)) {
+    newStatus = "PAID";
+    paidAt = activePayments.length > 0 ? activePayments[0].paidAt : new Date();
+  } else if (totalPaid.greaterThan(0)) {
+    newStatus = "PARTIAL";
+    paidAt = null;
+  } else {
+    newStatus = "PENDING";
+    paidAt = null;
+  }
+
+  const updatedFee = await tx.fee.update({
+    where: { id: feeId },
+    data: {
+      amountPaid: totalPaid,
+      status: newStatus as any,
+      paidAt,
+    },
+    include: {
+      student: {
+        select: {
+          id: true,
+          studentId: true,
+          firstName: true,
+          lastName: true,
+        },
+      },
+      feeStructure: {
+        select: {
+          id: true,
+          name: true,
+          type: true,
+          academicYear: true,
+          term: true,
+        },
+      },
+    },
+  });
+
+  return updatedFee;
+}
+
+export interface SoftDeletePaymentParams {
+  schoolId: string;
+  feeId?: string;
+  paymentId: string;
+  deletedBy: string;
+  reason?: string | null;
+}
+
+export interface SoftDeletePaymentResult {
+  payment: Payment;
+  updatedFee: Fee;
+}
+
+/**
+ * Soft-deletes a payment record by setting deletedAt = now() and triggers fee state recalculation.
+ */
+export async function softDeletePayment(
+  params: SoftDeletePaymentParams,
+  txClient?: Prisma.TransactionClient
+): Promise<SoftDeletePaymentResult> {
+  const { schoolId, feeId, paymentId } = params;
+
+  const execute = async (tx: Prisma.TransactionClient): Promise<SoftDeletePaymentResult> => {
+    // Verify payment exists and belongs to school
+    const payment = await tx.payment.findUnique({
+      where: { id: paymentId },
+      include: {
+        fee: true,
+      },
+    });
+
+    if (!payment || payment.schoolId !== schoolId) {
+      throw new FeePaymentError("Payment not found", 404);
+    }
+
+    if (feeId && payment.feeId !== feeId) {
+      throw new FeePaymentError("Payment does not belong to the specified fee", 400);
+    }
+
+    if (payment.deletedAt !== null) {
+      throw new FeePaymentError("Payment has already been voided / soft-deleted", 409);
+    }
+
+    const updatedPayment = await tx.payment.update({
+      where: { id: paymentId },
+      data: {
+        deletedAt: new Date(),
+      },
+    });
+
+    // Recalculate parent fee state
+    const updatedFee = await recalculateFeeState(payment.feeId, tx);
+
+    return {
+      payment: updatedPayment,
+      updatedFee,
+    };
+  };
+
+  if (txClient) {
+    return execute(txClient);
+  }
+
+  return prisma.$transaction(execute, { maxWait: 10000, timeout: 20000 });
+}
+
+/**
  * Core atomic single-fee payment handler.
  * Can be executed as a standalone single payment or as a sub-operation within a package payment.
  */
@@ -179,18 +336,6 @@ export async function recordSingleFeePaymentCore(
     );
   }
 
-  let newStatus: "PAID" | "PARTIAL" | "PENDING";
-  let paidAt: Date | null = null;
-
-  if (newAmountPaid.greaterThanOrEqualTo(amountDue)) {
-    newStatus = "PAID";
-    paidAt = new Date();
-  } else if (newAmountPaid.greaterThan(0)) {
-    newStatus = "PARTIAL";
-  } else {
-    newStatus = "PENDING";
-  }
-
   let receiptNumber = customReceiptNumber;
   if (!receiptNumber) {
     const school = await tx.school.findUnique({
@@ -217,36 +362,12 @@ export async function recordSingleFeePaymentCore(
     },
   });
 
-  const feeUpdate = await tx.fee.update({
-    where: { id: feeId },
-    data: {
-      amountPaid: newAmountPaid,
-      status: newStatus,
-      paidAt,
-    },
-    include: {
-      student: {
-        select: {
-          id: true,
-          studentId: true,
-          firstName: true,
-          lastName: true,
-        },
-      },
-      feeStructure: {
-        select: {
-          id: true,
-          name: true,
-          type: true,
-          academicYear: true,
-          term: true,
-        },
-      },
-    },
-  });
+  // Recompute and persist fee state from live non-deleted payments
+  const feeUpdate = await recalculateFeeState(feeId, tx);
 
   return { payment: newPayment, updatedFee: feeUpdate };
 }
+
 
 /**
  * Master atomic package payment execution engine.

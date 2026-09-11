@@ -69,7 +69,7 @@ export const GET = withAuth(
 
         // 2. All payment transactions recorded for the school
         prisma.payment.findMany({
-          where: { schoolId },
+          where: { schoolId, deletedAt: null },
           select: {
             id: true,
             amount: true,

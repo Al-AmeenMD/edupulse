@@ -14,7 +14,7 @@ const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   PENDING: ["OVERDUE", "WAIVED"],
   OVERDUE: ["PENDING", "WAIVED"],
   WAIVED: ["PENDING", "OVERDUE"],
-  PARTIAL: ["PENDING"],
+  PARTIAL: ["PENDING", "WAIVED"],
 };
 
 // ---------------------------------------------------------------------------
@@ -68,6 +68,7 @@ export const GET = withAuth(
             },
           },
           payments: {
+            where: { deletedAt: null },
             orderBy: { paidAt: "desc" },
           },
         },
@@ -229,6 +230,7 @@ export const PATCH = withAuth(
             },
           },
           payments: {
+            where: { deletedAt: null },
             orderBy: { paidAt: "desc" },
           },
         },

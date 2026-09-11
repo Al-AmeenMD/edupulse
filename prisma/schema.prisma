@@ -310,6 +310,7 @@ model Payment {
   reference        String?
   recordedBy       String
   paidAt           DateTime        @default(now())
+  deletedAt        DateTime?
 
   school           School          @relation(fields: [schoolId], references: [id])
   fee              Fee             @relation(fields: [feeId], references: [id])
@@ -317,9 +318,12 @@ model Payment {
 
   @@unique([schoolId, receiptNumber])
   @@index([schoolId, paidAt])
+  @@index([schoolId, deletedAt])
+  @@index([feeId, deletedAt])
   @@index([packagePaymentId])
   @@map("payments")
 }
+
 
 model Expense {
   id          String    @id @default(cuid())
@@ -488,6 +492,7 @@ model PackagePayment {
   note          String?
   recordedBy    String
   paidAt        DateTime     @default(now())
+  deletedAt     DateTime?
   createdAt     DateTime     @default(now())
 
   school        School       @relation(fields: [schoolId], references: [id], onDelete: Cascade)
@@ -497,9 +502,11 @@ model PackagePayment {
 
   @@unique([schoolId, receiptNumber])
   @@index([schoolId, paidAt])
+  @@index([schoolId, deletedAt])
   @@index([studentId])
   @@index([packageId])
   @@map("package_payments")
 }
+
 
 

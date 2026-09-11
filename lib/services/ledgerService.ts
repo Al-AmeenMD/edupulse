@@ -106,8 +106,12 @@ export async function getUnifiedLedger(
   const paymentWhere: Prisma.PaymentWhereInput = {
     schoolId,
     packagePaymentId: null, // Exclude child payments to prevent double-counting
+    deletedAt: null,
   };
-  const packagePaymentWhere: Prisma.PackagePaymentWhereInput = { schoolId };
+  const packagePaymentWhere: Prisma.PackagePaymentWhereInput = {
+    schoolId,
+    deletedAt: null,
+  };
   const expenseWhere: Prisma.ExpenseWhereInput = { schoolId, deletedAt: null };
   const budgetAuditWhere: Prisma.BudgetAuditLogWhereInput = {
     budget: { schoolId },

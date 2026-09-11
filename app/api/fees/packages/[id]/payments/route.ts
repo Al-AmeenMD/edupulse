@@ -37,6 +37,7 @@ export const GET = withAuth(
         where: {
           packageId,
           schoolId,
+          deletedAt: null,
         },
         include: {
           student: {

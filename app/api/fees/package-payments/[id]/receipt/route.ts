@@ -61,6 +61,7 @@ export const GET = withAuth(
             },
           },
           payments: {
+            where: { deletedAt: null },
             include: {
               fee: {
                 include: { feeStructure: true },
@@ -71,7 +72,7 @@ export const GET = withAuth(
       });
 
       // Strict tenant check
-      if (!packagePayment || packagePayment.schoolId !== schoolId) {
+      if (!packagePayment || packagePayment.deletedAt || packagePayment.schoolId !== schoolId) {
         return NextResponse.json(
           { error: "Package payment record not found" },
           { status: 404 }
@@ -89,6 +90,7 @@ export const GET = withAuth(
         include: {
           feeStructure: true,
           payments: {
+            where: { deletedAt: null },
             orderBy: { paidAt: "asc" },
             select: {
               id: true,

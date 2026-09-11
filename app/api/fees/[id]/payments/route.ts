@@ -53,19 +53,22 @@ export const POST = withAuth(
 
       for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         try {
-          result = await prisma.$transaction(async (tx) => {
-            return recordSingleFeePaymentCore(
-              {
-                schoolId,
-                feeId,
-                amount,
-                method,
-                reference,
-                recordedBy: req.user.userId,
-              },
-              tx
-            );
-          });
+          result = await prisma.$transaction(
+            async (tx) => {
+              return recordSingleFeePaymentCore(
+                {
+                  schoolId,
+                  feeId,
+                  amount,
+                  method,
+                  reference,
+                  recordedBy: req.user.userId,
+                },
+                tx
+              );
+            },
+            { maxWait: 10000, timeout: 20000 }
+          );
           break;
         } catch (err: any) {
           if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
@@ -163,7 +166,7 @@ export const GET = withAuth(
       }
 
       const payments = await prisma.payment.findMany({
-        where: { feeId },
+        where: { feeId, deletedAt: null },
         orderBy: { paidAt: "desc" },
       });
 

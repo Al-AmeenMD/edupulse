@@ -64,6 +64,7 @@ export const GET = withAuth(
               },
               feeStructure: true,
               payments: {
+                where: { deletedAt: null },
                 orderBy: { paidAt: "asc" },
                 select: {
                   id: true,
@@ -78,6 +79,7 @@ export const GET = withAuth(
 
       if (
         !payment ||
+        payment.deletedAt ||
         payment.feeId !== feeId ||
         payment.schoolId !== schoolId ||
         payment.fee.schoolId !== schoolId

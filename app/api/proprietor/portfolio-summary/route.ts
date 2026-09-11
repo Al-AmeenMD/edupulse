@@ -59,14 +59,14 @@ export const GET = withAuth(
 
       // 2. Aggregate Standalone Payments across owned schools
       const standalonePaymentAgg = await prisma.payment.aggregate({
-        where: { schoolId: { in: schoolIds }, packagePaymentId: null },
+        where: { schoolId: { in: schoolIds }, packagePaymentId: null, deletedAt: null },
         _sum: { amount: true },
       });
       const standaloneRevenue = Number(standalonePaymentAgg._sum.amount || 0);
 
       // 3. Aggregate Package Payments across owned schools
       const packagePaymentAgg = await prisma.packagePayment.aggregate({
-        where: { schoolId: { in: schoolIds } },
+        where: { schoolId: { in: schoolIds }, deletedAt: null },
         _sum: { amount: true },
       });
       const packageRevenue = Number(packagePaymentAgg._sum.amount || 0);
@@ -158,11 +158,11 @@ export const GET = withAuth(
           const sId = l.schoolId;
 
           const sStandaloneAgg = await prisma.payment.aggregate({
-            where: { schoolId: sId, packagePaymentId: null },
+            where: { schoolId: sId, packagePaymentId: null, deletedAt: null },
             _sum: { amount: true },
           });
           const sPkgAgg = await prisma.packagePayment.aggregate({
-            where: { schoolId: sId },
+            where: { schoolId: sId, deletedAt: null },
             _sum: { amount: true },
           });
           const sRev = Number(sStandaloneAgg._sum.amount || 0) + Number(sPkgAgg._sum.amount || 0);
