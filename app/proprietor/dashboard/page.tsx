@@ -143,7 +143,7 @@ export default function ProprietorDashboardPage() {
             </div>
           </div>
           <div>
-            <p className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight truncate" title={formatNaira(data.totalRevenueCollected)}>{formatNaira(data.totalRevenueCollected)}</p>
+            <p className="text-xl sm:text-2xl 2xl:text-lg font-extrabold text-slate-900 tracking-tight break-normal leading-tight" title={formatNaira(data.totalRevenueCollected)}>{formatNaira(data.totalRevenueCollected)}</p>
             <p className="text-[11px] text-slate-400 mt-1 truncate">Total payments</p>
           </div>
         </div>
@@ -158,7 +158,7 @@ export default function ProprietorDashboardPage() {
             </div>
           </div>
           <div>
-            <p className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight truncate" title={formatNaira(data.totalExpensesIncurred || 0)}>{formatNaira(data.totalExpensesIncurred || 0)}</p>
+            <p className="text-xl sm:text-2xl 2xl:text-lg font-extrabold text-slate-900 tracking-tight break-normal leading-tight" title={formatNaira(data.totalExpensesIncurred || 0)}>{formatNaira(data.totalExpensesIncurred || 0)}</p>
             <p className="text-[11px] text-slate-400 mt-1 truncate">Total expenses</p>
           </div>
         </div>
@@ -173,7 +173,7 @@ export default function ProprietorDashboardPage() {
             </div>
           </div>
           <div>
-            <p className={`text-xl sm:text-2xl font-extrabold tracking-tight truncate ${(data.netOperatingPosition || 0) >= 0 ? 'text-slate-900' : 'text-rose-600'}`} title={formatNaira(data.netOperatingPosition || 0)}>
+            <p className={`text-xl sm:text-2xl 2xl:text-lg font-extrabold tracking-tight break-normal leading-tight ${(data.netOperatingPosition || 0) >= 0 ? 'text-slate-900' : 'text-rose-600'}`} title={formatNaira(data.netOperatingPosition || 0)}>
               {formatNaira(data.netOperatingPosition || 0)}
             </p>
             <p className="text-[11px] text-slate-400 mt-1 truncate">Revenue − Expenses</p>
@@ -245,15 +245,15 @@ export default function ProprietorDashboardPage() {
                   </div>
                   <div className="min-w-0">
                     <span className="text-slate-400 block font-medium truncate">Revenue</span>
-                    <span className="font-bold text-emerald-600 text-sm truncate block" title={formatNaira(school.totalRevenueCollected)}>{formatNaira(school.totalRevenueCollected)}</span>
+                    <span className="font-bold text-emerald-600 text-sm lg:text-xs xl:text-[13px] 2xl:text-sm block break-normal leading-tight" title={formatNaira(school.totalRevenueCollected)}>{formatNaira(school.totalRevenueCollected)}</span>
                   </div>
                   <div className="min-w-0">
                     <span className="text-slate-400 block font-medium truncate">Expenses</span>
-                    <span className="font-bold text-rose-600 text-sm truncate block" title={formatNaira(school.totalExpensesIncurred || 0)}>{formatNaira(school.totalExpensesIncurred || 0)}</span>
+                    <span className="font-bold text-rose-600 text-sm lg:text-xs xl:text-[13px] 2xl:text-sm block break-normal leading-tight" title={formatNaira(school.totalExpensesIncurred || 0)}>{formatNaira(school.totalExpensesIncurred || 0)}</span>
                   </div>
                   <div className="min-w-0">
                     <span className="text-slate-400 block font-medium truncate">Net Position</span>
-                    <span className={`font-bold text-sm truncate block ${(school.netOperatingPosition || 0) >= 0 ? 'text-slate-800' : 'text-rose-600'}`} title={formatNaira(school.netOperatingPosition || 0)}>
+                    <span className={`font-bold text-sm lg:text-xs xl:text-[13px] 2xl:text-sm block break-normal leading-tight ${(school.netOperatingPosition || 0) >= 0 ? 'text-slate-800' : 'text-rose-600'}`} title={formatNaira(school.netOperatingPosition || 0)}>
                       {formatNaira(school.netOperatingPosition || 0)}
                     </span>
                   </div>
