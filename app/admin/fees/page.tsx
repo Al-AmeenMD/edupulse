@@ -10,6 +10,13 @@ import { StudentSelector } from "@/components/ui/StudentSelector";
 type FeeType = "TUITION" | "TRANSPORT" | "UNIFORM" | "EXAM" | "MISCELLANEOUS" | "FEEDING";
 type FeeStatus = "PENDING" | "PAID" | "OVERDUE" | "PARTIAL" | "WAIVED";
 
+const FEE_STATUS_ALLOWED_TRANSITIONS: Record<string, FeeStatus[]> = {
+  PENDING: ["OVERDUE", "WAIVED"],
+  OVERDUE: ["PENDING", "WAIVED"],
+  WAIVED: ["PENDING", "OVERDUE"],
+  PARTIAL: ["PENDING", "WAIVED"],
+};
+
 interface FeeStructureItem {
   id: string;
   name: string;
@@ -1617,11 +1624,8 @@ export default function FeesManagementPage() {
       return;
     }
     setChangingStatusFee(fee);
-    let defaultTarget = "PENDING";
-    if (fee.status === "PENDING") defaultTarget = "OVERDUE";
-    else if (fee.status === "OVERDUE") defaultTarget = "PENDING";
-    else if (fee.status === "WAIVED") defaultTarget = "PENDING";
-    else if (fee.status === "PARTIAL") defaultTarget = "PENDING";
+    const allowed = FEE_STATUS_ALLOWED_TRANSITIONS[fee.status] || [];
+    const defaultTarget = allowed[0] || "PENDING";
     setTargetStatus(defaultTarget);
     setStatusReason("");
   }
@@ -3542,27 +3546,11 @@ export default function FeesManagementPage() {
                   onChange={(e) => setTargetStatus(e.target.value)}
                   className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white cursor-pointer"
                 >
-                  {changingStatusFee.status === "PENDING" && (
-                    <>
-                      <option value="OVERDUE">OVERDUE</option>
-                      <option value="WAIVED">WAIVED</option>
-                    </>
-                  )}
-                  {changingStatusFee.status === "OVERDUE" && (
-                    <>
-                      <option value="PENDING">PENDING</option>
-                      <option value="WAIVED">WAIVED</option>
-                    </>
-                  )}
-                  {changingStatusFee.status === "WAIVED" && (
-                    <>
-                      <option value="PENDING">PENDING</option>
-                      <option value="OVERDUE">OVERDUE</option>
-                    </>
-                  )}
-                  {changingStatusFee.status === "PARTIAL" && (
-                    <option value="PENDING">PENDING</option>
-                  )}
+                  {(FEE_STATUS_ALLOWED_TRANSITIONS[changingStatusFee.status] || []).map((statusOption) => (
+                    <option key={statusOption} value={statusOption}>
+                      {statusOption}
+                    </option>
+                  ))}
                 </select>
               </div>
 
