@@ -57,28 +57,76 @@ export const GET = withAuth(
         );
       }
 
-      // 2. Aggregate Standalone Payments across owned schools
-      const standalonePaymentAgg = await prisma.payment.aggregate({
-        where: { schoolId: { in: schoolIds }, packagePaymentId: null, deletedAt: null },
-        _sum: { amount: true },
-      });
-      const standaloneRevenue = Number(standalonePaymentAgg._sum.amount || 0);
+      // 2. Execute all 7 portfolio-wide aggregations in a single parallel batch
+      const [
+        standalonePaymentGroups,
+        packagePaymentGroups,
+        expenseGroups,
+        studentGroups,
+        adminGroups,
+        feeRecords,
+        attendanceRecords,
+      ] = await Promise.all([
+        // Standalone Payments grouped by school
+        prisma.payment.groupBy({
+          by: ["schoolId"],
+          where: { schoolId: { in: schoolIds }, packagePaymentId: null, deletedAt: null },
+          _sum: { amount: true },
+        }),
+        // Package Payments grouped by school
+        prisma.packagePayment.groupBy({
+          by: ["schoolId"],
+          where: { schoolId: { in: schoolIds }, deletedAt: null },
+          _sum: { amount: true },
+        }),
+        // Expenses grouped by school
+        prisma.expense.groupBy({
+          by: ["schoolId"],
+          where: { schoolId: { in: schoolIds }, deletedAt: null },
+          _sum: { amount: true },
+        }),
+        // Active Students grouped by school
+        prisma.student.groupBy({
+          by: ["schoolId"],
+          where: { schoolId: { in: schoolIds }, isActive: true },
+          _count: { id: true },
+        }),
+        // Active School Admins grouped by school
+        prisma.user.groupBy({
+          by: ["schoolId"],
+          where: { schoolId: { in: schoolIds }, role: Role.SCHOOL_ADMIN, isActive: true },
+          _count: { id: true },
+        }),
+        // Outstanding Fees across all portfolio schools (Pre-existing in-memory aggregation)
+        prisma.fee.findMany({
+          where: { schoolId: { in: schoolIds }, status: { in: ["PENDING", "OVERDUE", "PARTIAL"] } },
+          select: { amountDue: true, amountPaid: true, schoolId: true },
+        }),
+        // Attendance records across all portfolio schools (Pre-existing in-memory aggregation)
+        prisma.attendance.findMany({
+          where: { schoolId: { in: schoolIds } },
+          select: { status: true, schoolId: true },
+        }),
+      ]);
 
-      // 3. Aggregate Package Payments across owned schools
-      const packagePaymentAgg = await prisma.packagePayment.aggregate({
-        where: { schoolId: { in: schoolIds }, deletedAt: null },
-        _sum: { amount: true },
-      });
-      const packageRevenue = Number(packagePaymentAgg._sum.amount || 0);
+      // 3. Map aggregations into O(1) Lookup Maps
+      const standaloneRevMap = new Map(
+        standalonePaymentGroups.map((g) => [g.schoolId, Number(g._sum.amount || 0)])
+      );
+      const packageRevMap = new Map(
+        packagePaymentGroups.map((g) => [g.schoolId, Number(g._sum.amount || 0)])
+      );
+      const expenseMap = new Map(
+        expenseGroups.map((g) => [g.schoolId, Number(g._sum.amount || 0)])
+      );
+      const studentCountMap = new Map(
+        studentGroups.map((g) => [g.schoolId, g._count.id])
+      );
+      const adminCountMap = new Map(
+        adminGroups.map((g) => [g.schoolId, g._count.id])
+      );
 
-      const totalRevenueCollected = standaloneRevenue + packageRevenue;
-
-      // 4. Aggregate Outstanding Fees across owned schools
-      const feeRecords = await prisma.fee.findMany({
-        where: { schoolId: { in: schoolIds }, status: { in: ["PENDING", "OVERDUE", "PARTIAL"] } },
-        select: { amountDue: true, amountPaid: true, schoolId: true },
-      });
-
+      // 4. Compute Outstanding Balances (Portfolio + Per-School) — Identical to original L82-91
       let totalOutstandingBalance = 0;
       const feeBalanceBySchool = new Map<string, number>();
 
@@ -90,25 +138,7 @@ export const GET = withAuth(
         feeBalanceBySchool.set(f.schoolId, currentSBal + bal);
       }
 
-      // 5. Aggregate Total Expenses across owned schools
-      const expenseAgg = await prisma.expense.aggregate({
-        where: { schoolId: { in: schoolIds }, deletedAt: null },
-        _sum: { amount: true },
-      });
-      const totalExpensesIncurred = Number(expenseAgg._sum.amount || 0);
-      const netOperatingPosition = totalRevenueCollected - totalExpensesIncurred;
-
-      // 6. Aggregate Total Students enrolled
-      const totalStudents = await prisma.student.count({
-        where: { schoolId: { in: schoolIds }, isActive: true },
-      });
-
-      // 7. Aggregate Attendance across owned schools
-      const attendanceRecords = await prisma.attendance.findMany({
-        where: { schoolId: { in: schoolIds } },
-        select: { status: true, schoolId: true },
-      });
-
+      // 5. Compute Attendance Statistics (Portfolio + Per-School) — Identical to original L112-153
       let totalPresent = 0;
       let totalLate = 0;
       let totalExcused = 0;
@@ -152,60 +182,49 @@ export const GET = withAuth(
           ? Math.round(((totalPresent + totalLate + totalExcused) / totalDaysAll) * 100)
           : 0;
 
-      // 8. Build per-school breakdown list
-      const schoolBreakdowns = await Promise.all(
-        links.map(async (l) => {
-          const sId = l.schoolId;
+      // 6. Compute Portfolio-Wide Totals from Group Maps
+      let totalRevenueCollected = 0;
+      let totalExpensesIncurred = 0;
+      let totalStudents = 0;
 
-          const sStandaloneAgg = await prisma.payment.aggregate({
-            where: { schoolId: sId, packagePaymentId: null, deletedAt: null },
-            _sum: { amount: true },
-          });
-          const sPkgAgg = await prisma.packagePayment.aggregate({
-            where: { schoolId: sId, deletedAt: null },
-            _sum: { amount: true },
-          });
-          const sRev = Number(sStandaloneAgg._sum.amount || 0) + Number(sPkgAgg._sum.amount || 0);
+      for (const sId of schoolIds) {
+        totalRevenueCollected += (standaloneRevMap.get(sId) || 0) + (packageRevMap.get(sId) || 0);
+        totalExpensesIncurred += expenseMap.get(sId) || 0;
+        totalStudents += studentCountMap.get(sId) || 0;
+      }
+      const netOperatingPosition = totalRevenueCollected - totalExpensesIncurred;
 
-          const sBal = feeBalanceBySchool.get(sId) || 0;
+      // 7. Assemble Per-School Breakdowns (Zero Additional DB Queries) — Exact Object Parity with L192-206
+      const schoolBreakdowns = links.map((l) => {
+        const sId = l.schoolId;
+        const sRev = (standaloneRevMap.get(sId) || 0) + (packageRevMap.get(sId) || 0);
+        const sExpenses = expenseMap.get(sId) || 0;
+        const sNetPosition = sRev - sExpenses;
+        const sBal = feeBalanceBySchool.get(sId) || 0;
+        const sStudents = studentCountMap.get(sId) || 0;
+        const sAdmins = adminCountMap.get(sId) || 0;
 
-          const sExpAgg = await prisma.expense.aggregate({
-            where: { schoolId: sId, deletedAt: null },
-            _sum: { amount: true },
-          });
-          const sExpenses = Number(sExpAgg._sum.amount || 0);
-          const sNetPosition = sRev - sExpenses;
+        const att = attendanceBySchool.get(sId) || { present: 0, late: 0, excused: 0, absent: 0 };
+        const sDays = att.present + att.late + att.excused + att.absent;
+        const sAttRate =
+          sDays > 0 ? Math.round(((att.present + att.late + att.excused) / sDays) * 100) : 0;
 
-          const sStudents = await prisma.student.count({
-            where: { schoolId: sId, isActive: true },
-          });
-
-          const sAdmins = await prisma.user.count({
-            where: { schoolId: sId, role: Role.SCHOOL_ADMIN, isActive: true },
-          });
-
-          const att = attendanceBySchool.get(sId) || { present: 0, late: 0, excused: 0, absent: 0 };
-          const sDays = att.present + att.late + att.excused + att.absent;
-          const sAttRate =
-            sDays > 0 ? Math.round(((att.present + att.late + att.excused) / sDays) * 100) : 0;
-
-          return {
-            id: sId,
-            name: l.school.name,
-            code: l.school.studentIdPrefix || "SCH",
-            city: null,
-            state: null,
-            status: "ACTIVE",
-            schoolAdminCount: sAdmins,
-            totalStudents: sStudents,
-            totalRevenueCollected: sRev,
-            totalOutstandingBalance: sBal,
-            totalExpensesIncurred: sExpenses,
-            netOperatingPosition: sNetPosition,
-            attendanceRate: sAttRate,
-          };
-        })
-      );
+        return {
+          id: sId,
+          name: l.school.name,
+          code: l.school.studentIdPrefix || "SCH",
+          city: null,
+          state: null,
+          status: "ACTIVE",
+          schoolAdminCount: sAdmins,
+          totalStudents: sStudents,
+          totalRevenueCollected: sRev,
+          totalOutstandingBalance: sBal,
+          totalExpensesIncurred: sExpenses,
+          netOperatingPosition: sNetPosition,
+          attendanceRate: sAttRate,
+        };
+      });
 
       return NextResponse.json(
         {

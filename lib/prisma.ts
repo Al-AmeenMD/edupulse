@@ -29,10 +29,8 @@ function getFreshClient(): PrismaClient {
     return globalForPrisma.prisma;
   }
   const client = new PrismaClient({ adapter, log: ["error"] });
-  if (process.env.NODE_ENV !== "production") {
-    globalForPrisma.prisma = client;
-    globalForPrisma.prismaPool = pool;
-  }
+  globalForPrisma.prisma = client;
+  globalForPrisma.prismaPool = pool;
   return client;
 }
 
