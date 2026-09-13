@@ -71,6 +71,8 @@ model User {
   sessions      Session[]
   proprietorSchools ProprietorSchool[] @relation("ProprietorSchools")
 
+  @@index([schoolId, role])
+  @@index([schoolId, isActive])
   @@map("users")
 }
 
@@ -183,6 +185,8 @@ model ClassEnrollment {
   class      Class    @relation(fields: [classId], references: [id])
 
   @@unique([studentId, classId])
+  @@index([classId])
+  @@index([studentId, enrolledAt])
   @@map("class_enrollments")
 }
 
@@ -274,6 +278,8 @@ model FeeStructure {
   fees         Fee[]
   packageItems FeePackageItem[]
 
+  @@index([schoolId])
+  @@index([schoolId, academicYear, term])
   @@map("fee_structures")
 }
 
@@ -296,6 +302,10 @@ model Fee {
   feeStructure   FeeStructure @relation(fields: [feeStructureId], references: [id])
   payments       Payment[]
 
+  @@index([schoolId, status])
+  @@index([schoolId, dueDate])
+  @@index([studentId])
+  @@index([feeStructureId])
   @@map("fees")
 }
 

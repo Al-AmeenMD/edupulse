@@ -190,6 +190,18 @@ export const GET = withAuth(
       const isActiveParam = searchParams.get("isActive");
       const classId = searchParams.get("classId")?.trim();
 
+      const pageParam = searchParams.get("page");
+      const limitParam = searchParams.get("limit");
+      const isExplicitlyPaginated = pageParam !== null || limitParam !== null;
+
+      const UNPAGINATED_SAFETY_CEILING = 1000;
+      const page = Math.max(1, parseInt(pageParam || "1", 10) || 1);
+      const rawLimit = parseInt(limitParam || "50", 10) || 50;
+      const limit = isExplicitlyPaginated
+        ? Math.min(Math.max(1, rawLimit), 200)
+        : UNPAGINATED_SAFETY_CEILING;
+      const skip = isExplicitlyPaginated ? (page - 1) * limit : 0;
+
       const where: any = {
         schoolId,
       };
@@ -242,28 +254,55 @@ export const GET = withAuth(
         };
       }
 
-      const students = await prisma.student.findMany({
-        where,
-        orderBy: {
-          firstName: "asc",
-        },
-        include: {
-          classEnrollments: {
-            include: {
-              class: {
-                select: {
-                  id: true,
-                  name: true,
-                  level: true,
-                  academicYear: true,
+      const [students, totalCount] = await Promise.all([
+        prisma.student.findMany({
+          where,
+          orderBy: {
+            firstName: "asc",
+          },
+          take: limit,
+          skip,
+          include: {
+            classEnrollments: {
+              include: {
+                class: {
+                  select: {
+                    id: true,
+                    name: true,
+                    level: true,
+                    academicYear: true,
+                  },
                 },
               },
             },
           },
-        },
-      });
+        }),
+        prisma.student.count({ where }),
+      ]);
 
-      return NextResponse.json({ data: students }, { status: 200 });
+      if (isExplicitlyPaginated) {
+        return NextResponse.json(
+          {
+            data: students,
+            pagination: {
+              page,
+              limit,
+              totalItems: totalCount,
+              totalPages: Math.ceil(totalCount / limit),
+            },
+          },
+          { status: 200 }
+        );
+      }
+
+      return NextResponse.json(
+        {
+          data: students,
+          totalCount,
+          isTruncated: totalCount > UNPAGINATED_SAFETY_CEILING,
+        },
+        { status: 200 }
+      );
     } catch {
       return NextResponse.json(
         { error: "Internal server error" },

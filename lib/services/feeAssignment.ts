@@ -198,46 +198,51 @@ export async function assignSingleStructureCore(
   let createdFees: Fee[] = [];
 
   if (newStudentIds.length > 0) {
-    // Bulk create fee records
-    const createOps = newStudentIds.map((sid) =>
-      tx.fee.create({
-        data: {
-          schoolId,
-          studentId: sid,
-          feeStructureId,
-          amountDue: feeStructure.amount,
-          dueDate: feeStructure.dueDate,
-          status: "PENDING",
-        },
-        include: {
-          student: {
-            select: {
-              id: true,
-              studentId: true,
-              firstName: true,
-              lastName: true,
-              admissionLevel: true,
-              classEnrollments: {
-                select: { class: { select: { id: true, name: true } } },
-                take: 1,
-                orderBy: { enrolledAt: "desc" },
-              },
-            },
-          },
-          feeStructure: {
-            select: {
-              id: true,
-              name: true,
-              type: true,
-              academicYear: true,
-              term: true,
-            },
-          },
-        },
-      })
-    );
+    // Bulk create fee records in a single roundtrip, then fetch with includes
+    await tx.fee.createMany({
+      data: newStudentIds.map((sid) => ({
+        schoolId,
+        studentId: sid,
+        feeStructureId,
+        amountDue: feeStructure.amount,
+        dueDate: feeStructure.dueDate,
+        status: "PENDING",
+      })),
+      skipDuplicates: true,
+    });
 
-    createdFees = (await Promise.all(createOps)) as unknown as Fee[];
+    createdFees = (await tx.fee.findMany({
+      where: {
+        schoolId,
+        feeStructureId,
+        studentId: { in: newStudentIds },
+      },
+      include: {
+        student: {
+          select: {
+            id: true,
+            studentId: true,
+            firstName: true,
+            lastName: true,
+            admissionLevel: true,
+            classEnrollments: {
+              select: { class: { select: { id: true, name: true } } },
+              take: 1,
+              orderBy: { enrolledAt: "desc" },
+            },
+          },
+        },
+        feeStructure: {
+          select: {
+            id: true,
+            name: true,
+            type: true,
+            academicYear: true,
+            term: true,
+          },
+        },
+      },
+    })) as unknown as Fee[];
   }
 
   return {

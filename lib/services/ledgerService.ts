@@ -274,8 +274,11 @@ export async function getUnifiedLedger(
   let rawExpenses: any[] = [];
   let rawBudgetAudits: any[] = [];
 
+  const isFirstPage = page === 1;
+  const streamWindow = isFirstPage ? limit : Math.min(page * limit, 300);
+
   if (typeFilter === "PAYMENT") {
-    const windowSize = page * limit;
+    const windowSize = streamWindow;
     [rawPayments, rawPackagePayments] = await Promise.all([
       prisma.payment.findMany({
         where: paymentWhere,
@@ -318,8 +321,8 @@ export async function getUnifiedLedger(
       },
     });
   } else {
-    // type === "ALL": Multi-stream query with bounded window take (page * limit)
-    const windowSize = page * limit;
+    // type === "ALL": Multi-stream query with bounded window take (streamWindow)
+    const windowSize = streamWindow;
     [rawPayments, rawPackagePayments, rawExpenses, rawBudgetAudits] = await Promise.all([
       includePayments
         ? prisma.payment.findMany({
@@ -529,8 +532,12 @@ export async function getUnifiedLedger(
       return sortOrder === "asc" ? a.id.localeCompare(b.id) : b.id.localeCompare(a.id);
     });
 
-    const offset = (page - 1) * limit;
-    finalEntries = combined.slice(offset, offset + limit);
+    if (typeFilter === "EXPENSE" || typeFilter === "BUDGET_CHANGE") {
+      finalEntries = combined;
+    } else {
+      const offset = (page - 1) * limit;
+      finalEntries = combined.slice(offset, offset + limit);
+    }
   } else {
     // Multi-stream: combine, sort deterministically, and slice window
     const combined = [

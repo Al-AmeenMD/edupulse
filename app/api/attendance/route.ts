@@ -138,27 +138,50 @@ export const POST = withAuth(
         }
       }
 
-      // Prepare upsert operations inside a transaction
-      const operations = attendance.map((item) => {
+      // Fetch existing records for this class & date in one query to partition create vs update
+      const studentIds = attendance.map((item) => item.studentId!);
+      const existingRecords = await prisma.attendance.findMany({
+        where: {
+          schoolId,
+          classId,
+          date: dateOnly,
+          studentId: { in: studentIds },
+        },
+        select: { id: true, studentId: true },
+      });
+      const existingMap = new Map(existingRecords.map((r) => [r.studentId, r.id]));
+
+      const toCreate: Array<{
+        schoolId: string;
+        studentId: string;
+        classId: string;
+        teacherId: string;
+        date: Date;
+        status: AttendanceStatus;
+        note: string | null;
+      }> = [];
+      const toUpdate: Array<{
+        id: string;
+        status: AttendanceStatus;
+        note: string | null;
+        teacherId: string;
+      }> = [];
+
+      for (const item of attendance) {
         const studentId = item.studentId!;
         const status = item.status as AttendanceStatus;
         const note = item.note?.trim() || null;
+        const existingId = existingMap.get(studentId);
 
-        return prisma.attendance.upsert({
-          where: {
-            schoolId_studentId_classId_date: {
-              schoolId,
-              studentId,
-              classId,
-              date: dateOnly,
-            },
-          },
-          update: {
+        if (existingId) {
+          toUpdate.push({
+            id: existingId,
             status,
             note,
             teacherId: targetTeacherId,
-          },
-          create: {
+          });
+        } else {
+          toCreate.push({
             schoolId,
             studentId,
             classId,
@@ -166,11 +189,38 @@ export const POST = withAuth(
             date: dateOnly,
             status,
             note,
-          },
-        });
+          });
+        }
+      }
+
+      await prisma.$transaction(async (tx) => {
+        if (toCreate.length > 0) {
+          await tx.attendance.createMany({
+            data: toCreate,
+            skipDuplicates: true,
+          });
+        }
+        for (const item of toUpdate) {
+          await tx.attendance.update({
+            where: { id: item.id },
+            data: {
+              status: item.status,
+              note: item.note,
+              teacherId: item.teacherId,
+            },
+          });
+        }
       });
 
-      const savedRecords = await prisma.$transaction(operations);
+      // Fetch saved records to return identical response shape
+      const savedRecords = await prisma.attendance.findMany({
+        where: {
+          schoolId,
+          classId,
+          date: dateOnly,
+          studentId: { in: studentIds },
+        },
+      });
 
       return NextResponse.json({ data: savedRecords }, { status: 201 });
     } catch {

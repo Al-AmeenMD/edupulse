@@ -234,64 +234,117 @@ export const GET = withAuth(
         };
       }
 
-      let fees = await prisma.fee.findMany({
-        where,
-        orderBy: { dueDate: "asc" },
-        include: {
-          student: {
-            select: {
-              id: true,
-              studentId: true,
-              firstName: true,
-              lastName: true,
-              admissionLevel: true,
-              classEnrollments: {
-                select: {
-                  class: {
-                    select: {
-                      id: true,
-                      name: true,
+      if (classId && classId !== "ALL") {
+        const matchingEnrollments = await prisma.$queryRaw<{ studentId: string }[]>`
+          SELECT ce."studentId"
+          FROM class_enrollments ce
+          JOIN students s ON s.id = ce."studentId"
+          WHERE ce."classId" = ${classId}
+            AND s."schoolId" = ${schoolId}
+            AND NOT EXISTS (
+              SELECT 1 FROM class_enrollments ce_newer
+              WHERE ce_newer."studentId" = ce."studentId"
+                AND ce_newer."enrolledAt" > ce."enrolledAt"
+            )
+        `;
+        const targetStudentIds = matchingEnrollments.map((r) => r.studentId);
+        if (studentId) {
+          if (!targetStudentIds.includes(studentId)) {
+            where.studentId = "__NO_MATCH__";
+          }
+        } else {
+          where.studentId = { in: targetStudentIds };
+        }
+      }
+
+      const UNPAGINATED_SAFETY_CEILING = 1000;
+      const pageParam = searchParams.get("page");
+      const limitParam = searchParams.get("limit");
+      const isExplicitlyPaginated = Boolean(pageParam || limitParam);
+
+      const page = Math.max(1, parseInt(pageParam || "1", 10) || 1);
+      const limit = isExplicitlyPaginated
+        ? Math.min(100, Math.max(1, parseInt(limitParam || "20", 10) || 20))
+        : UNPAGINATED_SAFETY_CEILING;
+
+      const [fees, totalCount] = await Promise.all([
+        prisma.fee.findMany({
+          where,
+          orderBy: { dueDate: "asc" },
+          take: limit,
+          skip: isExplicitlyPaginated ? (page - 1) * limit : 0,
+          include: {
+            student: {
+              select: {
+                id: true,
+                studentId: true,
+                firstName: true,
+                lastName: true,
+                admissionLevel: true,
+                classEnrollments: {
+                  select: {
+                    class: {
+                      select: {
+                        id: true,
+                        name: true,
+                      },
                     },
                   },
+                  take: 1,
+                  orderBy: { enrolledAt: "desc" },
                 },
-                take: 1,
-                orderBy: { enrolledAt: "desc" },
               },
             },
-          },
-          feeStructure: {
-            select: {
-              id: true,
-              name: true,
-              type: true,
-              amount: true,
-              academicYear: true,
-              term: true,
+            feeStructure: {
+              select: {
+                id: true,
+                name: true,
+                type: true,
+                amount: true,
+                academicYear: true,
+                term: true,
+              },
+            },
+            payments: {
+              where: { deletedAt: null },
+              select: {
+                id: true,
+                amount: true,
+                method: true,
+                reference: true,
+                receiptNumber: true,
+                paidAt: true,
+              },
+              orderBy: { paidAt: "desc" },
             },
           },
-          payments: {
-            where: { deletedAt: null },
-            select: {
-              id: true,
-              amount: true,
-              method: true,
-              reference: true,
-              receiptNumber: true,
-              paidAt: true,
-            },
-            orderBy: { paidAt: "desc" },
-          },
-        },
-      });
+        }),
+        prisma.fee.count({ where }),
+      ]);
 
-      // Filter by current active class if classId filter provided (FIX-008 & FIX-015)
-      if (classId) {
-        fees = fees.filter(
-          (f) => f.student?.classEnrollments?.[0]?.class?.id === classId
+      if (isExplicitlyPaginated) {
+        return NextResponse.json(
+          {
+            data: fees,
+            pagination: {
+              page,
+              limit,
+              totalItems: totalCount,
+              totalPages: Math.ceil(totalCount / limit),
+            },
+          },
+          { status: 200 }
         );
       }
 
-      return NextResponse.json({ data: fees }, { status: 200 });
+      return NextResponse.json(
+        {
+          data: fees,
+          totalCount,
+          isTruncated: totalCount > UNPAGINATED_SAFETY_CEILING,
+        },
+        { status: 200 }
+      );
     } catch {
       return NextResponse.json(
         { error: "Internal server error" },
