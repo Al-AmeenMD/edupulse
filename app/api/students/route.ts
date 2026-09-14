@@ -3,23 +3,10 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/middleware/withAuth";
 import { prisma } from "@/lib/prisma";
 
-function generateStudentId(
-  template: string,
-  values: {
-    prefix: string;
-    year: string;
-    level?: string;
-    seq: number;
-  }
-): string {
-  return template
-    .replace("{PREFIX}", values.prefix)
-    .replace("{YEAR}", values.year)
-    .replace("{LEVEL}", values.level ?? "")
-    .replace(/\{SEQ:(\d+)\}/, (_, digits) =>
-      String(values.seq).padStart(parseInt(digits, 10), "0")
-    );
-}
+import {
+  createStudentCore,
+  StudentValidationError,
+} from "@/lib/services/studentService";
 
 export const POST = withAuth(
   async (req) => {
@@ -46,118 +33,28 @@ export const POST = withAuth(
         guardianEmail?: string;
       };
 
-      const firstName = body.firstName?.trim();
-      const lastName = body.lastName?.trim();
-      const gender = body.gender?.trim() || undefined;
-      const address = body.address?.trim() || undefined;
-      const guardianName = body.guardianName?.trim() || undefined;
-      const guardianPhone = body.guardianPhone?.trim() || undefined;
-      const guardianEmail = body.guardianEmail?.trim() || undefined;
-
-      if (!firstName || !lastName) {
-        return NextResponse.json(
-          { error: "First name and last name are required" },
-          { status: 400 }
-        );
-      }
-
-      const school = await prisma.school.findUnique({
-        where: { id: schoolId },
-        select: { studentIdTemplate: true, studentIdPrefix: true },
-      });
-
-      if (!school) {
-        return NextResponse.json(
-          { error: "School not found" },
-          { status: 404 }
-        );
-      }
-
-      const template = school.studentIdTemplate || "{PREFIX}/{YEAR}/{SEQ:3}";
-      const prefix = school.studentIdPrefix || "STU";
-      const hasLevelToken = template.includes("{LEVEL}");
-      const hasYearToken = template.includes("{YEAR}");
-
-      const admissionLevelInput = body.admissionLevel?.trim();
-
-      if (hasLevelToken && !admissionLevelInput) {
-        return NextResponse.json(
-          { error: "admissionLevel is required for this school's ID format" },
-          { status: 400 }
-        );
-      }
-
-      const admissionLevel = hasLevelToken ? admissionLevelInput : null;
-      const manualStudentId = body.studentId?.trim();
-      let studentId: string;
-
-      if (manualStudentId) {
-        // Validate manual student ID uniqueness within this school
-        const existing = await prisma.student.findUnique({
-          where: {
-            schoolId_studentId: {
-              schoolId,
-              studentId: manualStudentId,
-            },
-          },
-        });
-
-        if (existing) {
-          return NextResponse.json(
-            { error: "Student ID already exists" },
-            { status: 409 }
-          );
-        }
-
-        studentId = manualStudentId;
-      } else {
-        const currentYear = new Date().getFullYear();
-        const yearStart = new Date(currentYear, 0, 1);
-        const yearEnd = new Date(currentYear + 1, 0, 1);
-
-        const whereCount: any = { schoolId };
-
-        if (hasLevelToken) {
-          whereCount.admissionLevel = admissionLevel;
-        }
-
-        if (hasYearToken) {
-          whereCount.createdAt = {
-            gte: yearStart,
-            lt: yearEnd,
-          };
-        }
-
-        const count = await prisma.student.count({
-          where: whereCount,
-        });
-
-        studentId = generateStudentId(template, {
-          prefix,
-          year: String(currentYear),
-          level: admissionLevel || "",
-          seq: count + 1,
-        });
-      }
-
-      const student = await prisma.student.create({
-        data: {
-          schoolId,
-          studentId,
-          firstName,
-          lastName,
-          dateOfBirth: body.dateOfBirth ? new Date(body.dateOfBirth) : null,
-          gender,
-          address,
-          admissionLevel,
-          guardianName,
-          guardianPhone,
-          guardianEmail,
-        },
+      const { student } = await createStudentCore({
+        schoolId,
+        studentId: body.studentId,
+        firstName: body.firstName || "",
+        lastName: body.lastName || "",
+        dateOfBirth: body.dateOfBirth,
+        gender: body.gender,
+        address: body.address,
+        admissionLevel: body.admissionLevel,
+        guardianName: body.guardianName,
+        guardianPhone: body.guardianPhone,
+        guardianEmail: body.guardianEmail,
       });
 
       return NextResponse.json({ data: student }, { status: 201 });
     } catch (error: any) {
+      if (error instanceof StudentValidationError) {
+        return NextResponse.json(
+          { error: error.message },
+          { status: error.statusCode }
+        );
+      }
       if (error?.code === "P2002") {
         return NextResponse.json(
           { error: "ID generation conflict — please try again" },
