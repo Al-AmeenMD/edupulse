@@ -45,30 +45,27 @@ export const PATCH = withAuth(
         level?: string;
         section?: string;
         teacherId?: string;
-        academicYear?: string;
       };
 
       const name = body.name?.trim();
       const level = body.level !== undefined ? (body.level?.trim() || null) : existingClass.level;
       const section = body.section !== undefined ? (body.section?.trim() || null) : existingClass.section;
-      const academicYear = body.academicYear?.trim();
       const teacherIdInput = body.teacherId !== undefined ? body.teacherId?.trim() : existingClass.teacherId;
       const teacherId = teacherIdInput || null;
 
       // 2. Validate required fields
-      if (!name || !academicYear) {
+      if (!name) {
         return NextResponse.json(
-          { error: "Name and academic year are required" },
+          { error: "Class name is required" },
           { status: 400 }
         );
       }
 
-      // 3. Check duplicate class name within same school + academicYear (excluding current class)
+      // 3. Check duplicate class name within same school (excluding current class)
       const duplicateClass = await prisma.class.findFirst({
         where: {
           schoolId,
           name,
-          academicYear,
           NOT: {
             id,
           },
@@ -77,7 +74,7 @@ export const PATCH = withAuth(
 
       if (duplicateClass) {
         return NextResponse.json(
-          { error: "Class already exists in this school for this academic year" },
+          { error: "A class with this name already exists in this school" },
           { status: 409 }
         );
       }
@@ -104,7 +101,6 @@ export const PATCH = withAuth(
           name,
           level,
           section,
-          academicYear,
           teacherId,
         },
         include: {

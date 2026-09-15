@@ -85,6 +85,8 @@ export interface CreateStudentInput {
   guardianPhone?: string | null;
   guardianEmail?: string | null;
   classId?: string | null;
+  academicYear?: string | null;
+  term?: string | null;
   validateOnly?: boolean;
 }
 
@@ -202,8 +204,17 @@ export async function createStudentCore(
     throw new StudentValidationError(genderResult.error, 400, "gender");
   }
 
-  // If classId is specified, validate that class exists in this school
+  // If classId is specified, validate that class exists in this school and academicYear is provided
   if (input.classId) {
+    const academicYear = input.academicYear?.trim();
+    if (!academicYear) {
+      throw new StudentValidationError(
+        "academicYear is required when enrolling a student in a class",
+        400,
+        "academicYear"
+      );
+    }
+
     const classRecord = await db.class.findUnique({
       where: { id: input.classId },
       select: { schoolId: true },
@@ -245,7 +256,10 @@ export async function createStudentCore(
           id: "dry-run-enrollment-id",
           studentId: "dry-run-preview-id",
           classId: input.classId,
+          academicYear: input.academicYear!.trim(),
+          term: input.term?.trim() || null,
           enrolledAt: new Date(),
+          endedAt: null,
         }
       : null;
 
@@ -280,6 +294,9 @@ export async function createStudentCore(
       data: {
         studentId: student.id,
         classId: input.classId,
+        academicYear: input.academicYear!.trim(),
+        term: input.term?.trim() || null,
+        endedAt: null,
       },
     });
   }

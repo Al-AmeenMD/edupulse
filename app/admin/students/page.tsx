@@ -101,6 +101,7 @@ export default function StudentsPage() {
   // Bulk CSV Import Modal State
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
+  const [importAcademicYear, setImportAcademicYear] = useState("2026/2027");
   const [importSubmitting, setImportSubmitting] = useState(false);
   const [importStep, setImportStep] = useState<"select" | "preview" | "complete">("select");
   const [importModalError, setImportModalError] = useState("");
@@ -512,6 +513,10 @@ export default function StudentsPage() {
       setImportModalError("Please select a CSV file first.");
       return;
     }
+    if (!importAcademicYear.trim()) {
+      setImportModalError("Target academic year is required for student import.");
+      return;
+    }
     setImportModalError("");
     setImportSubmitting(true);
 
@@ -522,6 +527,7 @@ export default function StudentsPage() {
       const formData = new FormData();
       formData.append("file", importFile);
       formData.append("dryRun", "true");
+      formData.append("academicYear", importAcademicYear.trim());
 
       const res = await fetch("/api/students/import", {
         method: "POST",
@@ -547,6 +553,10 @@ export default function StudentsPage() {
 
   async function handleCommitImport() {
     if (!importFile) return;
+    if (!importAcademicYear.trim()) {
+      setImportModalError("Target academic year is required for student import.");
+      return;
+    }
     setImportModalError("");
     setImportSubmitting(true);
 
@@ -557,6 +567,7 @@ export default function StudentsPage() {
       const formData = new FormData();
       formData.append("file", importFile);
       formData.append("dryRun", "false");
+      formData.append("academicYear", importAcademicYear.trim());
 
       const res = await fetch("/api/students/import", {
         method: "POST",
@@ -1501,6 +1512,24 @@ export default function StudentsPage() {
                       <li><strong>Required:</strong> <code className="bg-blue-100/80 px-1 py-0.5 rounded font-mono">firstName</code>, <code className="bg-blue-100/80 px-1 py-0.5 rounded font-mono">lastName</code>, <code className="bg-blue-100/80 px-1 py-0.5 rounded font-mono">className</code></li>
                       <li><strong>Optional:</strong> <code className="bg-blue-100/80 px-1 py-0.5 rounded font-mono">studentId</code>, <code className="bg-blue-100/80 px-1 py-0.5 rounded font-mono">admissionLevel</code>, <code className="bg-blue-100/80 px-1 py-0.5 rounded font-mono">dateOfBirth</code> (YYYY-MM-DD), <code className="bg-blue-100/80 px-1 py-0.5 rounded font-mono">gender</code>, <code className="bg-blue-100/80 px-1 py-0.5 rounded font-mono">address</code>, <code className="bg-blue-100/80 px-1 py-0.5 rounded font-mono">guardianName</code>, <code className="bg-blue-100/80 px-1 py-0.5 rounded font-mono">guardianPhone</code>, <code className="bg-blue-100/80 px-1 py-0.5 rounded font-mono">guardianEmail</code></li>
                     </ul>
+                  </div>
+
+                  {/* Target Academic Year Input */}
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                      Target Academic Year / Session <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={importAcademicYear}
+                      onChange={(e) => setImportAcademicYear(e.target.value)}
+                      placeholder="e.g. 2026/2027"
+                      required
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 font-medium"
+                    />
+                    <p className="text-[11px] text-slate-500">
+                      Students in this CSV will be enrolled into their class under this academic year (unless overridden by a column in the CSV).
+                    </p>
                   </div>
 
                   {/* File Upload Zone */}

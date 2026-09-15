@@ -121,9 +121,9 @@ export const POST = withAuth(
         targetTeacherId = classRecord.teacherId;
       }
 
-      // Get enrolled student IDs for this class
+      // Get active enrolled student IDs for this class
       const enrollments = await prisma.classEnrollment.findMany({
-        where: { classId },
+        where: { classId, endedAt: null },
         select: { studentId: true },
       });
       const enrolledStudentIds = new Set(enrollments.map((e) => e.studentId));

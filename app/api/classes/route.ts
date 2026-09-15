@@ -20,36 +20,33 @@ export const POST = withAuth(
         level?: string;
         section?: string;
         teacherId?: string;
-        academicYear?: string;
       };
 
       const name = body.name?.trim();
       const level = body.level?.trim() || undefined;
       const section = body.section?.trim() || undefined;
       const teacherId = body.teacherId?.trim() || undefined;
-      const academicYear = body.academicYear?.trim();
 
-      if (!name || !academicYear) {
+      if (!name) {
         return NextResponse.json(
-          { error: "Name and academic year are required" },
+          { error: "Class name is required" },
           { status: 400 }
         );
       }
 
-      // Check for duplicate class name within same school + academicYear
+      // Check for duplicate class name within same school
       const existingClass = await prisma.class.findUnique({
         where: {
-          schoolId_name_academicYear: {
+          schoolId_name: {
             schoolId,
             name,
-            academicYear,
           },
         },
       });
 
       if (existingClass) {
         return NextResponse.json(
-          { error: "Class already exists in this school for this academic year" },
+          { error: "A class with this name already exists in this school" },
           { status: 409 }
         );
       }
@@ -76,7 +73,6 @@ export const POST = withAuth(
           level,
           section,
           teacherId,
-          academicYear,
         },
         include: {
           teacher: {
@@ -143,7 +139,12 @@ export const GET = withAuth(
       }
 
       if (academicYear) {
-        where.academicYear = academicYear;
+        where.enrollments = {
+          some: {
+            academicYear,
+            endedAt: null,
+          },
+        };
       }
 
       if (search) {
@@ -174,7 +175,12 @@ export const GET = withAuth(
           },
           _count: {
             select: {
-              enrollments: true,
+              enrollments: {
+                where: {
+                  endedAt: null,
+                  ...(academicYear ? { academicYear } : {}),
+                },
+              },
             },
           },
         },

@@ -8,7 +8,6 @@ interface ClassItem {
   id: string;
   name: string;
   level?: string | null;
-  academicYear: string;
 }
 
 interface StudentItem {
@@ -483,7 +482,7 @@ export default function TeacherAttendancePage() {
                 ) : (
                   classes.map((cls) => (
                     <option key={cls.id} value={cls.id}>
-                      {cls.name} — {cls.academicYear}
+                      {cls.name}{cls.level ? ` (${cls.level})` : ""}
                     </option>
                   ))
                 )}
@@ -745,8 +744,13 @@ export default function TeacherAttendancePage() {
                   className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
                 >
                   <option value={selectedYear}>{selectedYear}</option>
-                  {Array.from(new Set(classes.map((c) => c.academicYear)))
-                    .filter((y) => y && y !== selectedYear)
+                  {[
+                    "2024/2025",
+                    "2025/2026",
+                    "2026/2027",
+                    "2027/2028",
+                  ]
+                    .filter((y) => y !== selectedYear)
                     .map((y) => (
                       <option key={y} value={y}>
                         {y}

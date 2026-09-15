@@ -54,6 +54,7 @@ export const GET = withAuth(
           student: {
             include: {
               classEnrollments: {
+                where: { endedAt: null },
                 include: { class: true },
                 orderBy: { enrolledAt: "desc" },
                 take: 1,

@@ -45,11 +45,13 @@ export const POST = withAuth(
 
       let csvText = "";
       let dryRun = false;
+      let batchAcademicYear = "";
 
       const { searchParams } = new URL(req.url);
       if (searchParams.get("dryRun") === "true") {
         dryRun = true;
       }
+      batchAcademicYear = searchParams.get("academicYear")?.trim() || "";
 
       const contentType = req.headers.get("content-type") || "";
 
@@ -75,6 +77,10 @@ export const POST = withAuth(
         if (formDryRun === "true" || formDryRun === "1") {
           dryRun = true;
         }
+        const formAcademicYear = formData.get("academicYear");
+        if (typeof formAcademicYear === "string" && formAcademicYear.trim()) {
+          batchAcademicYear = formAcademicYear.trim();
+        }
       } else {
         const rawBody = await req.text();
         if (!rawBody || !rawBody.trim()) {
@@ -97,10 +103,20 @@ export const POST = withAuth(
           if (jsonBody.dryRun !== undefined) {
             dryRun = Boolean(jsonBody.dryRun);
           }
+          if (jsonBody.academicYear) {
+            batchAcademicYear = String(jsonBody.academicYear).trim();
+          }
         } catch {
           // If not valid JSON, treat raw text as CSV directly
           csvText = rawBody;
         }
+      }
+
+      if (!batchAcademicYear) {
+        return NextResponse.json(
+          { error: "Target academic year is required for student import" },
+          { status: 400 }
+        );
       }
 
       if (!csvText || !csvText.trim()) {
@@ -147,20 +163,16 @@ export const POST = withAuth(
         );
       }
 
-      // 1. Pre-fetch School Classes sorted by academicYear DESC, createdAt DESC
-      // Build first-write-wins map so the newest academic year wins on identical names
+      // 1. Pre-fetch School Classes
       const schoolClasses = await prisma.class.findMany({
         where: { schoolId },
-        select: { id: true, name: true, academicYear: true },
-        orderBy: [{ academicYear: "desc" }, { createdAt: "desc" }],
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
       });
 
-      const classMap = new Map<string, { id: string; name: string; academicYear: string }>();
+      const classMap = new Map<string, { id: string; name: string }>();
       for (const cls of schoolClasses) {
-        const key = cls.name.trim().toLowerCase();
-        if (!classMap.has(key)) {
-          classMap.set(key, cls);
-        }
+        classMap.set(cls.name.trim().toLowerCase(), cls);
       }
 
       // Tracking containers
@@ -241,6 +253,10 @@ export const POST = withAuth(
           seenFileStudentIds.add(idKey);
         }
 
+        const rowAcademicYear =
+          getField(rawRow, "academicYear", "academic_year", "session", "Session", "Academic Year") ||
+          batchAcademicYear;
+
         // Both dryRun and live execution delegate core validation to createStudentCore
         try {
           const runCore = (txClient?: Prisma.TransactionClient) =>
@@ -258,6 +274,7 @@ export const POST = withAuth(
                 guardianPhone,
                 guardianEmail,
                 classId: resolvedClass.id,
+                academicYear: rowAcademicYear,
                 validateOnly: dryRun,
               },
               txClient

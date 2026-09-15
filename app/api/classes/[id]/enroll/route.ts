@@ -24,13 +24,24 @@ export const POST = withAuth(
       const { id } = (await context.params) as Awaited<RouteContext["params"]>;
       const body = (await req.json()) as {
         studentId?: string;
+        academicYear?: string;
+        term?: string;
       };
 
       const studentId = body.studentId?.trim();
+      const academicYear = body.academicYear?.trim();
+      const term = body.term?.trim() || null;
 
       if (!studentId) {
         return NextResponse.json(
           { error: "Student ID is required" },
+          { status: 400 }
+        );
+      }
+
+      if (!academicYear) {
+        return NextResponse.json(
+          { error: "Academic year is required for enrollment" },
           { status: 400 }
         );
       }
@@ -55,9 +66,9 @@ export const POST = withAuth(
         return NextResponse.json({ error: "Student not found" }, { status: 404 });
       }
 
-      // Check student not already enrolled in any class
+      // Check student not already actively enrolled in any class
       const existingEnrollment = await prisma.classEnrollment.findFirst({
-        where: { studentId },
+        where: { studentId, endedAt: null },
         include: {
           class: {
             select: { id: true, name: true },
@@ -83,6 +94,9 @@ export const POST = withAuth(
         data: {
           studentId,
           classId: id,
+          academicYear,
+          term,
+          endedAt: null,
         },
         include: {
           student: {
@@ -154,22 +168,26 @@ export const DELETE = withAuth(
         return NextResponse.json({ error: "Student not found" }, { status: 404 });
       }
 
-      // Check enrollment exists and delete it
-      try {
-        await prisma.classEnrollment.delete({
-          where: {
-            studentId_classId: {
-              studentId,
-              classId: id,
-            },
-          },
-        });
-      } catch {
+      // Find active enrollment and mark endedAt
+      const activeEnrollment = await prisma.classEnrollment.findFirst({
+        where: {
+          studentId,
+          classId: id,
+          endedAt: null,
+        },
+      });
+
+      if (!activeEnrollment) {
         return NextResponse.json(
-          { error: "Enrollment not found" },
+          { error: "Active enrollment not found for this student and class" },
           { status: 404 }
         );
       }
+
+      await prisma.classEnrollment.update({
+        where: { id: activeEnrollment.id },
+        data: { endedAt: new Date() },
+      });
 
       return NextResponse.json(
         { message: "Student removed from class" },

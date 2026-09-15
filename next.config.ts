@@ -4,5 +4,5 @@ const nextConfig: NextConfig = {
   /* config options here */
 };
 
-// Reload config: 2026-08-23-add-must-change-password-flag
+// Reload config: 2026-09-15-decouple-class-and-enrollment-session
 export default nextConfig;

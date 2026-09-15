@@ -45,6 +45,7 @@ export const GET = withAuth(
             class: {
               teacherId: teacherRecord.id,
             },
+            endedAt: null,
           },
         };
       }
@@ -53,13 +54,15 @@ export const GET = withAuth(
         where,
         include: {
           classEnrollments: {
+            where: { endedAt: null },
+            take: 1,
+            orderBy: { enrolledAt: "desc" },
             include: {
               class: {
                 select: {
                   id: true,
                   name: true,
                   level: true,
-                  academicYear: true,
                 },
               },
             },
@@ -185,13 +188,15 @@ export const PATCH = withAuth(
         data: updateData,
         include: {
           classEnrollments: {
+            where: { endedAt: null },
+            take: 1,
+            orderBy: { enrolledAt: "desc" },
             include: {
               class: {
                 select: {
                   id: true,
                   name: true,
                   level: true,
-                  academicYear: true,
                 },
               },
             },

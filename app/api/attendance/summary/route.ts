@@ -85,7 +85,7 @@ export const GET = withAuth(
         });
 
         const allEnrollments = await prisma.classEnrollment.findMany({
-          where: { class: { schoolId } },
+          where: { class: { schoolId }, endedAt: null },
           select: { classId: true, studentId: true },
         });
 
@@ -229,7 +229,7 @@ export const GET = withAuth(
 
       // Fetch active enrollments
       const enrollments = await prisma.classEnrollment.findMany({
-        where: { classId },
+        where: { classId, endedAt: null },
         include: {
           student: {
             select: {

@@ -11,7 +11,6 @@ interface ClassItem {
   name: string;
   level?: string | null;
   section?: string | null;
-  academicYear: string;
   teacherId?: string | null;
   teacher?: Teacher | null;
   _count?: {
@@ -57,7 +56,6 @@ export default function ClassesPage() {
   const [level, setLevel] = useState("");
   const [section, setSection] = useState("");
   const [customSection, setCustomSection] = useState("");
-  const [academicYear, setAcademicYear] = useState("2025/2026");
   const [teacherId, setTeacherId] = useState("");
 
   // Edit Class Modal State (FIX-007)
@@ -66,10 +64,17 @@ export default function ClassesPage() {
   const [editLevel, setEditLevel] = useState("");
   const [editSection, setEditSection] = useState("");
   const [editCustomSection, setEditCustomSection] = useState("");
-  const [editAcademicYear, setEditAcademicYear] = useState("");
   const [editTeacherId, setEditTeacherId] = useState("");
   const [editModalError, setEditModalError] = useState("");
   const [editSubmitting, setEditSubmitting] = useState(false);
+
+  // Promotion Modal State
+  const [promotingClass, setPromotingClass] = useState<ClassItem | null>(null);
+  const [promoteTargetClassId, setPromoteTargetClassId] = useState("");
+  const [promoteAcademicYear, setPromoteAcademicYear] = useState("2026/2027");
+  const [promoteTerm, setPromoteTerm] = useState("Term 1");
+  const [promoteSubmitting, setPromoteSubmitting] = useState(false);
+  const [promoteError, setPromoteError] = useState("");
 
   // Expanded Row & Student Enrollment State
   const [expandedClassId, setExpandedClassId] = useState<string | null>(null);
@@ -77,6 +82,7 @@ export default function ClassesPage() {
   const [enrolledLoading, setEnrolledLoading] = useState(false);
   const [allSchoolStudents, setAllSchoolStudents] = useState<EnrolledStudent[]>([]);
   const [selectedStudentToEnroll, setSelectedStudentToEnroll] = useState("");
+  const [enrollAcademicYear, setEnrollAcademicYear] = useState("2026/2027");
   const [enrolling, setEnrolling] = useState(false);
   const [enrollError, setEnrollError] = useState("");
   const [removingStudentId, setRemovingStudentId] = useState<string | null>(null);
@@ -232,7 +238,6 @@ export default function ClassesPage() {
           name: name.trim(),
           level: level.trim() || undefined,
           section: finalSection || undefined,
-          academicYear: academicYear.trim(),
           teacherId: teacherId.trim() || undefined,
         }),
       });
@@ -272,7 +277,6 @@ export default function ClassesPage() {
       setEditSection(secVal);
       setEditCustomSection("");
     }
-    setEditAcademicYear(cls.academicYear);
     setEditTeacherId(cls.teacherId || "");
     setEditModalError("");
   }
@@ -302,7 +306,6 @@ export default function ClassesPage() {
           name: editName.trim(),
           level: editLevel.trim() || null,
           section: finalSection || null,
-          academicYear: editAcademicYear.trim(),
           teacherId: editTeacherId.trim() || null,
         }),
       });
@@ -324,9 +327,77 @@ export default function ClassesPage() {
     }
   }
 
+  // Handle Open Promote Modal
+  function handleOpenPromoteModal(cls: ClassItem) {
+    setPromotingClass(cls);
+    setPromoteTargetClassId("");
+    setPromoteAcademicYear("2026/2027");
+    setPromoteTerm("Term 1");
+    setPromoteError("");
+  }
+
+  // Handle Promote Class Submit
+  async function handlePromoteSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!promotingClass) return;
+    if (!promoteTargetClassId) {
+      setPromoteError("Please select a target class");
+      return;
+    }
+    if (!promoteAcademicYear.trim()) {
+      setPromoteError("Target academic year is required");
+      return;
+    }
+
+    setPromoteError("");
+    setPromoteSubmitting(true);
+
+    try {
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) throw new Error("Authentication token not found");
+
+      const res = await fetch("/api/classes/promote", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          mode: "batch",
+          sourceClassId: promotingClass.id,
+          targetClassId: promoteTargetClassId,
+          targetAcademicYear: promoteAcademicYear.trim(),
+          targetTerm: promoteTerm.trim() || undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to promote students");
+      }
+
+      setPromotingClass(null);
+      setSuccess(data.message || "Successfully promoted students to new class");
+      setTimeout(() => setSuccess(""), 5000);
+      fetchClasses();
+      fetchAllSchoolStudents();
+      if (expandedClassId) {
+        fetchEnrolledStudents(expandedClassId);
+      }
+    } catch (err: any) {
+      setPromoteError(err.message || "An error occurred during promotion");
+    } finally {
+      setPromoteSubmitting(false);
+    }
+  }
+
   // Handle Enroll Student into Class
   async function handleEnrollStudent(classId: string) {
     if (!selectedStudentToEnroll) return;
+    if (!enrollAcademicYear.trim()) {
+      setEnrollError("Academic year is required for enrollment");
+      return;
+    }
     setEnrolling(true);
     setEnrollError("");
     setSuccess("");
@@ -350,7 +421,10 @@ export default function ClassesPage() {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ studentId: selectedStudentToEnroll }),
+        body: JSON.stringify({
+          studentId: selectedStudentToEnroll,
+          academicYear: enrollAcademicYear.trim(),
+        }),
       });
 
       const data = await res.json();
@@ -455,9 +529,6 @@ export default function ClassesPage() {
           <td className="px-6 py-4 text-xs text-slate-600 font-medium">
             {cls.level || "—"}
           </td>
-          <td className="px-6 py-4 text-xs text-slate-600 font-mono font-medium">
-            {cls.academicYear}
-          </td>
           <td className="px-6 py-4">
             {teacherName ? (
               <div className="flex items-center gap-2">
@@ -475,6 +546,12 @@ export default function ClassesPage() {
           </td>
           <td className="px-6 py-4 text-right">
             <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+              <button
+                onClick={() => handleOpenPromoteModal(cls)}
+                className="px-3 py-1.5 rounded-lg border border-purple-200 hover:bg-purple-50 text-xs font-semibold text-purple-700 shadow-2xs transition-colors cursor-pointer"
+              >
+                Promote
+              </button>
               <button
                 onClick={() => handleOpenEditModal(cls)}
                 className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-xs font-semibold text-slate-700 shadow-2xs transition-colors"
@@ -503,7 +580,7 @@ export default function ClassesPage() {
         {/* Expanded Row View for Enrolled Students */}
         {isExpanded && (
           <tr>
-            <td colSpan={7} className="bg-slate-50/70 px-6 py-5 border-y border-blue-100">
+            <td colSpan={6} className="bg-slate-50/70 px-6 py-5 border-y border-blue-100">
               <div className="space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
@@ -511,12 +588,12 @@ export default function ClassesPage() {
                       Enrolled Students in {cls.name}
                     </h3>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      Enroll new students or remove existing enrollments for this class.
+                      Enroll new students with target session or remove existing enrollments for this class.
                     </p>
                   </div>
 
                   {/* Enroll Student Dropdown Control */}
-                  <div className="flex items-center gap-2 max-w-md w-full">
+                  <div className="flex items-center gap-2 max-w-lg w-full">
                     <div className="flex-1">
                       <StudentSelector
                         students={allSchoolStudents}
@@ -526,13 +603,23 @@ export default function ClassesPage() {
                         placeholder="Select student to enroll..."
                       />
                     </div>
+                    <div className="w-28 shrink-0">
+                      <input
+                        type="text"
+                        value={enrollAcademicYear}
+                        onChange={(e) => setEnrollAcademicYear(e.target.value)}
+                        placeholder="Session (e.g. 2026/2027)"
+                        title="Academic Year / Session for Enrollment"
+                        className="w-full px-2.5 py-2.5 rounded-xl border border-slate-200 text-xs text-slate-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 font-medium"
+                      />
+                    </div>
 
                     <button
                       onClick={() => handleEnrollStudent(cls.id)}
-                      disabled={!selectedStudentToEnroll || enrolling}
+                      disabled={!selectedStudentToEnroll || enrolling || !enrollAcademicYear.trim()}
                       className="px-3.5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition-colors disabled:opacity-50 flex items-center gap-1.5 cursor-pointer shrink-0"
                     >
-                      {enrolling ? "Enrolling..." : "Enroll Student"}
+                      {enrolling ? "Enrolling..." : "Enroll"}
                     </button>
                   </div>
                 </div>
@@ -720,7 +807,6 @@ export default function ClassesPage() {
                   <th className="px-6 py-3.5">Class Name</th>
                   <th className="px-6 py-3.5">Section</th>
                   <th className="px-6 py-3.5">Level</th>
-                  <th className="px-6 py-3.5">Academic Year</th>
                   <th className="px-6 py-3.5">Assigned Teacher</th>
                   <th className="px-6 py-3.5 text-center">Students Enrolled</th>
                   <th className="px-6 py-3.5 text-right">Actions</th>
@@ -733,7 +819,7 @@ export default function ClassesPage() {
                     <React.Fragment key={secName}>
                       <tr className="bg-slate-100/80 border-y border-slate-200">
                         <td
-                          colSpan={7}
+                          colSpan={6}
                           className="px-6 py-2.5 text-xs font-extrabold text-slate-700 tracking-wider uppercase bg-slate-100/90"
                         >
                           SECTION: {secName} ({secClasses.length} {secClasses.length === 1 ? "Class" : "Classes"})
@@ -837,20 +923,6 @@ export default function ClassesPage() {
                   value={level}
                   onChange={(e) => setLevel(e.target.value)}
                   placeholder="e.g. Grade 5, Year 1"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 font-medium"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="block text-xs font-semibold text-slate-700">
-                  Academic Year <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={academicYear}
-                  onChange={(e) => setAcademicYear(e.target.value)}
-                  required
-                  placeholder="e.g. 2025/2026"
                   className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 font-medium"
                 />
               </div>
@@ -986,20 +1058,6 @@ export default function ClassesPage() {
                 />
               </div>
 
-              <div className="space-y-1">
-                <label className="block text-xs font-semibold text-slate-700">
-                  Academic Year <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={editAcademicYear}
-                  onChange={(e) => setEditAcademicYear(e.target.value)}
-                  required
-                  placeholder="e.g. 2025/2026"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 font-medium"
-                />
-              </div>
-
               <TeacherSelector
                 label="Assigned Teacher"
                 teachers={teachers}
@@ -1029,6 +1087,140 @@ export default function ClassesPage() {
                     </>
                   ) : (
                     <span>Save Changes</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Promote Class Modal */}
+      {promotingClass && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs"
+            onClick={() => setPromotingClass(null)}
+          />
+
+          <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden z-10">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-bold text-slate-900">
+                  Promote Class: {promotingClass.name}
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Batch promote enrolled students to the next class for a new academic year.
+                </p>
+              </div>
+              <button
+                onClick={() => setPromotingClass(null)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Modal Error Alert */}
+            {promoteError && (
+              <div className="mx-6 mt-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-medium flex items-center gap-2">
+                <svg className="w-4 h-4 text-rose-600 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0zm-9 3.75h.008v.008H12v-.008z" />
+                </svg>
+                <span>{promoteError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handlePromoteSubmit} className="p-6 space-y-4">
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Source Class
+                </label>
+                <input
+                  type="text"
+                  disabled
+                  value={promotingClass.name}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-500 bg-slate-50 font-medium"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Target Destination Class <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={promoteTargetClassId}
+                  onChange={(e) => setPromoteTargetClassId(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-purple-600/20 focus:border-purple-600 font-medium"
+                >
+                  <option value="">Select Destination Class...</option>
+                  {classes
+                    .filter((c) => c.id !== promotingClass.id)
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} {c.level ? `(${c.level})` : ""}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Target Academic Year / Session <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={promoteAcademicYear}
+                  onChange={(e) => setPromoteAcademicYear(e.target.value)}
+                  required
+                  placeholder="e.g. 2026/2027"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 bg-white focus:outline-hidden focus:ring-2 focus:ring-purple-600/20 focus:border-purple-600 font-medium"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Target Term (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={promoteTerm}
+                  onChange={(e) => setPromoteTerm(e.target.value)}
+                  placeholder="e.g. Term 1"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 bg-white focus:outline-hidden focus:ring-2 focus:ring-purple-600/20 focus:border-purple-600 font-medium"
+                />
+              </div>
+
+              <div className="p-3 bg-purple-50/70 border border-purple-100 rounded-xl text-xs text-purple-800">
+                <p className="font-semibold">Promotion Summary:</p>
+                <p className="mt-0.5 text-purple-700">
+                  All active enrollments in {promotingClass.name} will be ended, and new active enrollments will be created in the selected target class for session {promoteAcademicYear}.
+                </p>
+              </div>
+
+              <div className="pt-4 flex justify-end gap-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setPromotingClass(null)}
+                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 font-semibold text-sm transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={promoteSubmitting || !promoteTargetClassId}
+                  className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-sm transition-colors shadow-xs disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                >
+                  {promoteSubmitting ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      <span>Promoting...</span>
+                    </>
+                  ) : (
+                    <span>Confirm Promotion</span>
                   )}
                 </button>
               </div>

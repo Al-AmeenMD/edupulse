@@ -61,6 +61,7 @@ export const GET = withAuth(
           lastName: true,
           admissionLevel: true,
           classEnrollments: {
+            where: { endedAt: null },
             select: { class: { select: { id: true, name: true } } },
             take: 1,
             orderBy: { enrolledAt: "desc" },

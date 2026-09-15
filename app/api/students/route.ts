@@ -134,6 +134,7 @@ export const GET = withAuth(
           class: {
             teacherId: teacherRecord.id,
           },
+          endedAt: null,
         };
 
         if (classId) {
@@ -147,6 +148,7 @@ export const GET = withAuth(
         where.classEnrollments = {
           some: {
             classId,
+            endedAt: null,
           },
         };
       }
@@ -161,13 +163,15 @@ export const GET = withAuth(
           skip,
           include: {
             classEnrollments: {
+              where: { endedAt: null },
+              take: 1,
+              orderBy: { enrolledAt: "desc" },
               include: {
                 class: {
                   select: {
                     id: true,
                     name: true,
                     level: true,
-                    academicYear: true,
                   },
                 },
               },

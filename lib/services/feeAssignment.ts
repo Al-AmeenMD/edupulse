@@ -121,7 +121,7 @@ export async function resolveTargetStudents(
     }
 
     const enrollments = await tx.classEnrollment.findMany({
-      where: { classId: classRecord.id },
+      where: { classId: classRecord.id, endedAt: null },
       select: { studentId: true },
     });
 
@@ -226,6 +226,7 @@ export async function assignSingleStructureCore(
             lastName: true,
             admissionLevel: true,
             classEnrollments: {
+              where: { endedAt: null },
               select: { class: { select: { id: true, name: true } } },
               take: 1,
               orderBy: { enrolledAt: "desc" },
