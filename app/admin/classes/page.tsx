@@ -75,6 +75,9 @@ export default function ClassesPage() {
   const [promoteTerm, setPromoteTerm] = useState("Term 1");
   const [promoteSubmitting, setPromoteSubmitting] = useState(false);
   const [promoteError, setPromoteError] = useState("");
+  const [promoteStudents, setPromoteStudents] = useState<EnrolledStudent[]>([]);
+  const [promoteSelectedStudentIds, setPromoteSelectedStudentIds] = useState<string[]>([]);
+  const [promoteStudentsLoading, setPromoteStudentsLoading] = useState(false);
 
   // Expanded Row & Student Enrollment State
   const [expandedClassId, setExpandedClassId] = useState<string | null>(null);
@@ -328,12 +331,54 @@ export default function ClassesPage() {
   }
 
   // Handle Open Promote Modal
-  function handleOpenPromoteModal(cls: ClassItem) {
+  async function handleOpenPromoteModal(cls: ClassItem) {
     setPromotingClass(cls);
     setPromoteTargetClassId("");
     setPromoteAcademicYear("2026/2027");
     setPromoteTerm("Term 1");
     setPromoteError("");
+    setPromoteStudents([]);
+    setPromoteSelectedStudentIds([]);
+    setPromoteStudentsLoading(true);
+
+    try {
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) return;
+
+      const res = await fetch(`/api/students?classId=${cls.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const list: EnrolledStudent[] = data.data || [];
+        setPromoteStudents(list);
+        setPromoteSelectedStudentIds(list.map((s) => s.id));
+      }
+    } catch (err: any) {
+      console.error("Failed to fetch students for promotion:", err);
+      setPromoteError("Failed to load class students");
+    } finally {
+      setPromoteStudentsLoading(false);
+    }
+  }
+
+  // Toggle single student selection in promote modal
+  function handleToggleSelectStudent(studentId: string) {
+    setPromoteSelectedStudentIds((prev) =>
+      prev.includes(studentId)
+        ? prev.filter((id) => id !== studentId)
+        : [...prev, studentId]
+    );
+  }
+
+  // Toggle all students selection in promote modal
+  function handleToggleSelectAllStudents() {
+    if (promoteSelectedStudentIds.length === promoteStudents.length) {
+      setPromoteSelectedStudentIds([]);
+    } else {
+      setPromoteSelectedStudentIds(promoteStudents.map((s) => s.id));
+    }
   }
 
   // Handle Promote Class Submit
@@ -346,6 +391,10 @@ export default function ClassesPage() {
     }
     if (!promoteAcademicYear.trim()) {
       setPromoteError("Target academic year is required");
+      return;
+    }
+    if (promoteSelectedStudentIds.length === 0) {
+      setPromoteError("Please select at least one student to promote");
       return;
     }
 
@@ -368,6 +417,7 @@ export default function ClassesPage() {
           targetClassId: promoteTargetClassId,
           targetAcademicYear: promoteAcademicYear.trim(),
           targetTerm: promoteTerm.trim() || undefined,
+          studentIds: promoteSelectedStudentIds,
         }),
       });
 
@@ -1103,8 +1153,8 @@ export default function ClassesPage() {
             onClick={() => setPromotingClass(null)}
           />
 
-          <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden z-10">
-            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+          <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden z-10 max-h-[90vh] flex flex-col">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between shrink-0">
               <div>
                 <h2 className="text-base font-bold text-slate-900">
                   Promote Class: {promotingClass.name}
@@ -1115,7 +1165,7 @@ export default function ClassesPage() {
               </div>
               <button
                 onClick={() => setPromotingClass(null)}
-                className="text-slate-400 hover:text-slate-600 p-1"
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
@@ -1125,7 +1175,7 @@ export default function ClassesPage() {
 
             {/* Modal Error Alert */}
             {promoteError && (
-              <div className="mx-6 mt-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-medium flex items-center gap-2">
+              <div className="mx-6 mt-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-medium flex items-center gap-2 shrink-0">
                 <svg className="w-4 h-4 text-rose-600 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0zm-9 3.75h.008v.008H12v-.008z" />
                 </svg>
@@ -1133,7 +1183,7 @@ export default function ClassesPage() {
               </div>
             )}
 
-            <form onSubmit={handlePromoteSubmit} className="p-6 space-y-4">
+            <form onSubmit={handlePromoteSubmit} className="p-6 space-y-4 overflow-y-auto">
               <div className="space-y-1">
                 <label className="block text-xs font-semibold text-slate-700">
                   Source Class
@@ -1167,37 +1217,107 @@ export default function ClassesPage() {
                 </select>
               </div>
 
-              <div className="space-y-1">
-                <label className="block text-xs font-semibold text-slate-700">
-                  Target Academic Year / Session <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={promoteAcademicYear}
-                  onChange={(e) => setPromoteAcademicYear(e.target.value)}
-                  required
-                  placeholder="e.g. 2026/2027"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 bg-white focus:outline-hidden focus:ring-2 focus:ring-purple-600/20 focus:border-purple-600 font-medium"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Target Academic Year <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={promoteAcademicYear}
+                    onChange={(e) => setPromoteAcademicYear(e.target.value)}
+                    required
+                    placeholder="e.g. 2026/2027"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 bg-white focus:outline-hidden focus:ring-2 focus:ring-purple-600/20 focus:border-purple-600 font-medium"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Target Term (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={promoteTerm}
+                    onChange={(e) => setPromoteTerm(e.target.value)}
+                    placeholder="e.g. Term 1"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 bg-white focus:outline-hidden focus:ring-2 focus:ring-purple-600/20 focus:border-purple-600 font-medium"
+                  />
+                </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="block text-xs font-semibold text-slate-700">
-                  Target Term (Optional)
-                </label>
-                <input
-                  type="text"
-                  value={promoteTerm}
-                  onChange={(e) => setPromoteTerm(e.target.value)}
-                  placeholder="e.g. Term 1"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 bg-white focus:outline-hidden focus:ring-2 focus:ring-purple-600/20 focus:border-purple-600 font-medium"
-                />
+              {/* Student Selection Checklist */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Students to Promote ({promoteSelectedStudentIds.length} of {promoteStudents.length} selected)
+                  </label>
+                  {promoteStudents.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleToggleSelectAllStudents}
+                      className="text-xs font-semibold text-purple-700 hover:text-purple-900 transition-colors cursor-pointer"
+                    >
+                      {promoteSelectedStudentIds.length === promoteStudents.length
+                        ? "Deselect All"
+                        : "Select All"}
+                    </button>
+                  )}
+                </div>
+
+                {promoteStudentsLoading ? (
+                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-500 animate-pulse text-center">
+                    Loading enrolled students...
+                  </div>
+                ) : promoteStudents.length === 0 ? (
+                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-500 text-center">
+                    No active students enrolled in this class.
+                  </div>
+                ) : (
+                  <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 bg-white">
+                    {promoteStudents.map((st) => {
+                      const isSelected = promoteSelectedStudentIds.includes(st.id);
+                      return (
+                        <label
+                          key={st.id}
+                          className={`flex items-center justify-between px-3 py-2 hover:bg-purple-50/50 cursor-pointer transition-colors ${
+                            isSelected ? "bg-purple-50/20" : ""
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleToggleSelectStudent(st.id)}
+                              className="w-4 h-4 rounded-sm border-slate-300 text-purple-600 focus:ring-purple-500"
+                            />
+                            <div>
+                              <span className="text-xs font-bold text-slate-900">
+                                {st.firstName} {st.lastName}
+                              </span>
+                              <span className="ml-2 font-mono text-[11px] text-slate-500">
+                                ({st.studentId})
+                              </span>
+                            </div>
+                          </div>
+                          {st.gender && (
+                            <span className="text-[11px] text-slate-400">
+                              {st.gender}
+                            </span>
+                          )}
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <div className="p-3 bg-purple-50/70 border border-purple-100 rounded-xl text-xs text-purple-800">
                 <p className="font-semibold">Promotion Summary:</p>
                 <p className="mt-0.5 text-purple-700">
-                  All active enrollments in {promotingClass.name} will be ended, and new active enrollments will be created in the selected target class for session {promoteAcademicYear}.
+                  {promoteSelectedStudentIds.length === promoteStudents.length
+                    ? `All ${promoteStudents.length} active enrollments in ${promotingClass.name} will be ended, and new active enrollments will be created in the selected target class for session ${promoteAcademicYear}.`
+                    : `${promoteSelectedStudentIds.length} of ${promoteStudents.length} selected student(s) in ${promotingClass.name} will be promoted to the target class for session ${promoteAcademicYear}. Unchecked students will remain active in ${promotingClass.name}.`}
                 </p>
               </div>
 
@@ -1205,13 +1325,13 @@ export default function ClassesPage() {
                 <button
                   type="button"
                   onClick={() => setPromotingClass(null)}
-                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 font-semibold text-sm transition-colors"
+                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 font-semibold text-sm transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={promoteSubmitting || !promoteTargetClassId}
+                  disabled={promoteSubmitting || !promoteTargetClassId || promoteSelectedStudentIds.length === 0}
                   className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-sm transition-colors shadow-xs disabled:opacity-50 flex items-center gap-2 cursor-pointer"
                 >
                   {promoteSubmitting ? (
