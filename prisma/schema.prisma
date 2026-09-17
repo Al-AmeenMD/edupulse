@@ -169,6 +169,8 @@ model Class {
   enrollments     ClassEnrollment[]
   attendance      Attendance[]
   subjectTeachers SubjectTeacher[]
+  payments        Payment[]
+  packagePayments PackagePayment[]
 
   @@unique([schoolId, name])
   @@map("classes")
@@ -317,6 +319,8 @@ model Payment {
   schoolId         String
   feeId            String
   packagePaymentId String?
+  classId          String?
+  className        String?
   receiptNumber    String
   amount           Decimal         @db.Decimal(10, 2)
   method           String
@@ -328,12 +332,14 @@ model Payment {
   school           School          @relation(fields: [schoolId], references: [id])
   fee              Fee             @relation(fields: [feeId], references: [id])
   packagePayment   PackagePayment? @relation(fields: [packagePaymentId], references: [id], onDelete: SetNull)
+  class            Class?          @relation(fields: [classId], references: [id], onDelete: SetNull)
 
   @@unique([schoolId, receiptNumber])
   @@index([schoolId, paidAt])
   @@index([schoolId, deletedAt])
   @@index([feeId, deletedAt])
   @@index([packagePaymentId])
+  @@index([schoolId, classId])
   @@map("payments")
 }
 
@@ -498,6 +504,8 @@ model PackagePayment {
   schoolId      String
   packageId     String?
   studentId     String
+  classId       String?
+  className     String?
   receiptNumber String
   amount        Decimal      @db.Decimal(10, 2)
   method        String
@@ -511,6 +519,7 @@ model PackagePayment {
   school        School       @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   package       FeePackage?  @relation(fields: [packageId], references: [id], onDelete: SetNull)
   student       Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  class         Class?       @relation(fields: [classId], references: [id], onDelete: SetNull)
   payments      Payment[]
 
   @@unique([schoolId, receiptNumber])
@@ -518,6 +527,7 @@ model PackagePayment {
   @@index([schoolId, deletedAt])
   @@index([studentId])
   @@index([packageId])
+  @@index([schoolId, classId])
   @@map("package_payments")
 }
 

@@ -306,6 +306,7 @@ export async function recordSingleFeePaymentCore(
     select: {
       id: true,
       schoolId: true,
+      studentId: true,
       amountDue: true,
       amountPaid: true,
       status: true,
@@ -336,6 +337,15 @@ export async function recordSingleFeePaymentCore(
     );
   }
 
+  // Snapshot active class enrollment at payment write-time (GAP-004)
+  const activeEnrollment = await tx.classEnrollment.findFirst({
+    where: { studentId: fee.studentId, endedAt: null },
+    select: { classId: true, class: { select: { name: true } } },
+    orderBy: { enrolledAt: "desc" },
+  });
+  const snapshotClassId = activeEnrollment?.classId || null;
+  const snapshotClassName = activeEnrollment?.class?.name || null;
+
   let receiptNumber = customReceiptNumber;
   if (!receiptNumber) {
     const school = await tx.school.findUnique({
@@ -354,6 +364,8 @@ export async function recordSingleFeePaymentCore(
       schoolId,
       feeId,
       packagePaymentId: packagePaymentId || null,
+      classId: snapshotClassId,
+      className: snapshotClassName,
       receiptNumber,
       amount: paymentAmount,
       method: validMethod,
@@ -591,12 +603,23 @@ export async function recordPackagePayment(
     // 1. Generate PackagePayment.receiptNumber (gap-safe MAX + 1)
     const pkgReceiptNumber = await getNextPackageReceiptNumber(tx, schoolId, prefix, year);
 
-    // 2. Create PackagePayment header
+    // 2. Snapshot active class enrollment for package payment (GAP-004)
+    const activeEnrollment = await tx.classEnrollment.findFirst({
+      where: { studentId, endedAt: null },
+      select: { classId: true, class: { select: { name: true } } },
+      orderBy: { enrolledAt: "desc" },
+    });
+    const snapshotClassId = activeEnrollment?.classId || null;
+    const snapshotClassName = activeEnrollment?.class?.name || null;
+
+    // 3. Create PackagePayment header
     const packagePayment = await tx.packagePayment.create({
       data: {
         schoolId,
         packageId,
         studentId,
+        classId: snapshotClassId,
+        className: snapshotClassName,
         receiptNumber: pkgReceiptNumber,
         amount: totalPaymentAmount,
         method: validMethod,
@@ -606,7 +629,7 @@ export async function recordPackagePayment(
       },
     });
 
-    // 3. Create component Payment rows against existing assigned fees (gap-safe MAX + 1)
+    // 4. Create component Payment rows against existing assigned fees (gap-safe MAX + 1)
     const baseSeq = await getNextPaymentSequenceBase(tx, schoolId, prefix, year);
     const createdPayments: Payment[] = [];
     let componentsSettled = 0;

@@ -51,16 +51,7 @@ export const GET = withAuth(
               },
             },
           },
-          student: {
-            include: {
-              classEnrollments: {
-                where: { endedAt: null },
-                include: { class: true },
-                orderBy: { enrolledAt: "desc" },
-                take: 1,
-              },
-            },
-          },
+          student: true,
           payments: {
             where: { deletedAt: null },
             include: {
@@ -333,7 +324,7 @@ export const GET = withAuth(
       });
 
       const studentName = `${packagePayment.student.firstName} ${packagePayment.student.lastName}`;
-      const className = packagePayment.student.classEnrollments[0]?.class?.name || "N/A";
+      const className = packagePayment.className || "N/A";
       const pkgName = packagePayment.package?.name || "Fee Package";
 
       page.drawText("Student Name:", { x: 55, y: y - 16, size: 9, font: fontRegular, color: colorMuted });

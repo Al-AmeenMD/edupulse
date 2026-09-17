@@ -53,18 +53,7 @@ export const GET = withAuth(
           school: true,
           fee: {
             include: {
-              student: {
-                include: {
-                  classEnrollments: {
-                    where: { endedAt: null },
-                    take: 1,
-                    orderBy: { enrolledAt: "desc" },
-                    include: {
-                      class: true,
-                    },
-                  },
-                },
-              },
+              student: true,
               feeStructure: true,
               payments: {
                 where: { deletedAt: null },
@@ -114,8 +103,7 @@ export const GET = withAuth(
       const student = payment.fee.student;
       const studentName = `${student.firstName} ${student.lastName}`;
       const studentId = student.studentId;
-      const enrolledClass =
-        student.classEnrollments?.[0]?.class?.name || "General";
+      const enrolledClass = payment.className || "General";
       const feeStructure = payment.fee.feeStructure;
       const feeName = feeStructure.name;
       const academicPeriod = `${feeStructure.academicYear}${

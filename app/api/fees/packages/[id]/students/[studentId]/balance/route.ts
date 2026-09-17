@@ -147,6 +147,23 @@ export const GET = withAuth(
         };
       });
 
+      // Fetch most recent package payment snapshot for this student and package if one exists (Option 2)
+      const latestPackagePayment = await prisma.packagePayment.findFirst({
+        where: {
+          schoolId,
+          studentId,
+          packageId,
+          deletedAt: null,
+        },
+        orderBy: { paidAt: "desc" },
+        select: { className: true },
+      });
+
+      const resolvedClassName =
+        latestPackagePayment?.className ||
+        student.classEnrollments[0]?.class?.name ||
+        null;
+
       return NextResponse.json(
         {
           data: {
@@ -165,7 +182,7 @@ export const GET = withAuth(
               firstName: student.firstName,
               lastName: student.lastName,
               admissionLevel: student.admissionLevel,
-              className: student.classEnrollments[0]?.class?.name || null,
+              className: resolvedClassName,
             },
             components,
             totalDue: totalDue.toFixed(2),
