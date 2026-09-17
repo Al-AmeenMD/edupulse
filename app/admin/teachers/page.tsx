@@ -61,6 +61,41 @@ export default function TeachersPage() {
   const [resetPasswordError, setResetPasswordError] = useState("");
   const [resetPasswordSuccess, setResetPasswordSuccess] = useState<string | null>(null);
 
+  // Bulk CSV Import Modal State
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importStep, setImportStep] = useState<"select" | "preview" | "complete">("select");
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importSubmitting, setImportSubmitting] = useState(false);
+  const [importModalError, setImportModalError] = useState("");
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [importResult, setImportResult] = useState<{
+    summary: {
+      totalRows: number;
+      createdCount: number;
+      skippedCount: number;
+      errorCount: number;
+    };
+    created: Array<{
+      rowNumber: number;
+      name: string;
+      email: string;
+      employeeId: string | null;
+      temporaryPassword?: string;
+    }>;
+    skipped: Array<{
+      rowNumber: number;
+      email?: string;
+      name?: string;
+      reason: string;
+    }>;
+    errors: Array<{
+      rowNumber: number;
+      field?: string;
+      message: string;
+    }>;
+    isDryRun?: boolean;
+  } | null>(null);
+
   function generateResetPassword() {
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
     const array = new Uint32Array(12);
@@ -113,6 +148,138 @@ export default function TeachersPage() {
       setResetPasswordError(err.message || "An error occurred.");
     } finally {
       setSubmittingResetPassword(false);
+    }
+  }
+
+  // Bulk CSV Import Handlers
+  function handleOpenImportModal() {
+    setImportFile(null);
+    setImportSubmitting(false);
+    setImportStep("select");
+    setImportModalError("");
+    setImportResult(null);
+    setCopiedIndex(null);
+    setIsImportModalOpen(true);
+  }
+
+  function handleDownloadTemplate() {
+    const csvContent =
+      "firstName,lastName,email,phone,employeeId,qualification,dob\n" +
+      "John,Doe,john.doe@example.com,08012345678,EMP-001,B.Ed Mathematics,1985-06-15\n" +
+      "Jane,Smith,jane.smith@example.com,08087654321,EMP-002,B.Sc Physics,1990-11-20";
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", "teachers_import_template.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  function handleDownloadCredentialsCsv() {
+    if (!importResult || importResult.created.length === 0) return;
+
+    let csv = "Name,Email,Staff ID,Temporary Password\n";
+    importResult.created.forEach((t) => {
+      const name = `"${t.name.replace(/"/g, '""')}"`;
+      const email = `"${t.email.replace(/"/g, '""')}"`;
+      const staffId = t.employeeId ? `"${t.employeeId.replace(/"/g, '""')}"` : '""';
+      const tempPass = t.temporaryPassword ? `"${t.temporaryPassword.replace(/"/g, '""')}"` : '""';
+      csv += `${name},${email},${staffId},${tempPass}\n`;
+    });
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", "teacher_credentials.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  async function handleValidateImport() {
+    if (!importFile) {
+      setImportModalError("Please select a CSV file first.");
+      return;
+    }
+    setImportModalError("");
+    setImportSubmitting(true);
+
+    try {
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) throw new Error("Authentication token not found");
+
+      const formData = new FormData();
+      formData.append("file", importFile);
+      formData.append("dryRun", "true");
+
+      const res = await fetch("/api/teachers/import", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.error || "Failed to validate import file");
+      }
+
+      setImportResult(json);
+      setImportStep("preview");
+    } catch (err: any) {
+      setImportModalError(err.message || "Failed to validate file");
+    } finally {
+      setImportSubmitting(false);
+    }
+  }
+
+  async function handleCommitImport() {
+    if (!importFile) return;
+    setImportModalError("");
+    setImportSubmitting(true);
+
+    try {
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) throw new Error("Authentication token not found");
+
+      const formData = new FormData();
+      formData.append("file", importFile);
+      formData.append("dryRun", "false");
+
+      const res = await fetch("/api/teachers/import", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.error || "Failed to process import");
+      }
+
+      setImportResult(json);
+      setImportStep("complete");
+      setSuccess(`Successfully imported ${json.summary.createdCount} teachers!`);
+    } catch (err: any) {
+      setImportModalError(err.message || "Failed to complete import");
+    } finally {
+      setImportSubmitting(false);
+    }
+  }
+
+  function handleCloseImportModal() {
+    setIsImportModalOpen(false);
+    if (importStep === "complete") {
+      fetchTeachers();
     }
   }
 
@@ -394,15 +561,26 @@ export default function TeachersPage() {
             Manage academic staff profiles, employee IDs, qualifications, and account access.
           </p>
         </div>
-        <button
-          onClick={handleOpenAddModal}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm transition-colors shadow-xs cursor-pointer"
-        >
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
-          <span>Add Teacher</span>
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleOpenImportModal}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm transition-colors shadow-xs cursor-pointer"
+          >
+            <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+            </svg>
+            <span>Bulk Import</span>
+          </button>
+          <button
+            onClick={handleOpenAddModal}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm transition-colors shadow-xs cursor-pointer"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            <span>Add Teacher</span>
+          </button>
+        </div>
       </div>
 
       {/* Sub-Navigation Tabs */}
@@ -1143,6 +1321,423 @@ export default function TeachersPage() {
                 </div>
               </form>
             )}
+          </div>
+        </div>
+      )}
+      {/* Bulk CSV Import Modal */}
+      {isImportModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl border border-slate-100 overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Modal Header */}
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-blue-50 border border-blue-100/80 flex items-center justify-center text-blue-600 shrink-0 shadow-xs">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">Bulk Import Teachers</h3>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Upload a CSV file to batch-create academic staff accounts.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseImportModal}
+                className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 p-2 rounded-xl transition-colors cursor-pointer"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-6">
+              {importModalError && (
+                <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-start gap-2.5">
+                  <svg className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+                  </svg>
+                  <span>{importModalError}</span>
+                </div>
+              )}
+
+              {/* STEP 1: FILE SELECTION */}
+              {importStep === "select" && (
+                <div className="space-y-5">
+                  {/* Download Template Banner */}
+                  <div className="p-4 bg-gradient-to-r from-blue-50/60 to-indigo-50/60 rounded-2xl border border-blue-100/80 flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-white text-blue-600 flex items-center justify-center shadow-xs shrink-0">
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m.75 12 3 3m0 0 3-3m-3 3v-6m-1.5-9H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-slate-900">Download CSV Template</p>
+                        <p className="text-xs text-slate-500">Get a pre-formatted template with sample teacher columns.</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleDownloadTemplate}
+                      className="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold text-xs shadow-xs transition-colors cursor-pointer shrink-0"
+                    >
+                      Download Template
+                    </button>
+                  </div>
+
+                  {/* File Upload Dropzone */}
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                      Upload Teachers CSV File <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="border-2 border-dashed border-slate-200 hover:border-blue-500 bg-slate-50/50 hover:bg-blue-50/20 rounded-2xl p-6 text-center transition-all">
+                      <input
+                        type="file"
+                        accept=".csv,text/csv"
+                        id="teacher-csv-file-input"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) {
+                            setImportFile(f);
+                            setImportModalError("");
+                          }
+                        }}
+                      />
+                      <label htmlFor="teacher-csv-file-input" className="cursor-pointer block space-y-2">
+                        <div className="w-12 h-12 mx-auto rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
+                          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m6.75 12-3-3m0 0-3 3m3-3v6m-1.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                          </svg>
+                        </div>
+                        {importFile ? (
+                          <div className="space-y-1">
+                            <p className="text-sm font-bold text-slate-800 font-mono">
+                              {importFile.name}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              {(importFile.size / 1024).toFixed(1)} KB • Click or drag to replace
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="space-y-1">
+                            <p className="text-sm font-semibold text-slate-700">
+                              Click to browse or drop your CSV here
+                            </p>
+                            <p className="text-xs text-slate-400">
+                              Max 500 rows and 2 MB per upload
+                            </p>
+                          </div>
+                        )}
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Info Notice */}
+                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 text-xs text-slate-600 space-y-1">
+                    <p className="font-semibold text-slate-800">Supported Columns:</p>
+                    <p className="text-slate-500">
+                      <span className="font-mono text-slate-700 font-semibold">firstName, lastName, email</span> (required) •{" "}
+                      <span className="font-mono text-slate-700">phone, employeeId, qualification, dob</span> (optional, DOB format: YYYY-MM-DD).
+                    </p>
+                    <p className="text-amber-700 text-[11px] pt-1">
+                      Note: Passwords are automatically generated upon import. Staff will be prompted to change their password on first login.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* STEP 2: PREVIEW & VALIDATION RESULTS */}
+              {importStep === "preview" && importResult && (
+                <div className="space-y-4">
+                  {/* Summary Metric Cards */}
+                  <div className="grid grid-cols-4 gap-3">
+                    <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl text-center">
+                      <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Total</p>
+                      <p className="text-xl font-bold text-slate-900 mt-0.5">{importResult.summary.totalRows}</p>
+                    </div>
+                    <div className="p-3 bg-emerald-50 border border-emerald-200/80 rounded-xl text-center">
+                      <p className="text-[11px] font-semibold text-emerald-700 uppercase tracking-wider">Valid</p>
+                      <p className="text-xl font-bold text-emerald-800 mt-0.5">{importResult.summary.createdCount}</p>
+                    </div>
+                    <div className="p-3 bg-amber-50 border border-amber-200/80 rounded-xl text-center">
+                      <p className="text-[11px] font-semibold text-amber-700 uppercase tracking-wider">Duplicates</p>
+                      <p className="text-xl font-bold text-amber-800 mt-0.5">{importResult.summary.skippedCount}</p>
+                    </div>
+                    <div className="p-3 bg-rose-50 border border-rose-200/80 rounded-xl text-center">
+                      <p className="text-[11px] font-semibold text-rose-700 uppercase tracking-wider">Errors</p>
+                      <p className="text-xl font-bold text-rose-800 mt-0.5">{importResult.summary.errorCount}</p>
+                    </div>
+                  </div>
+
+                  {/* Errors Section */}
+                  {importResult.errors.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-bold text-rose-800 uppercase tracking-wider flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-rose-600"></span>
+                          <span>Validation Errors ({importResult.errors.length})</span>
+                        </p>
+                        <span className="text-[11px] text-slate-500">These rows will be rejected</span>
+                      </div>
+                      <div className="max-h-36 overflow-y-auto border border-rose-200 rounded-xl bg-rose-50/50 divide-y divide-rose-100 text-xs">
+                        {importResult.errors.map((err, idx) => (
+                          <div key={idx} className="p-2.5 flex items-start gap-2">
+                            <span className="font-mono font-bold text-rose-900 shrink-0 bg-rose-100 px-1.5 py-0.5 rounded">
+                              Row {err.rowNumber}
+                            </span>
+                            <span className="text-rose-800">
+                              {err.field && <strong className="font-semibold">{err.field}: </strong>}
+                              {err.message}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Skipped Duplicates Section */}
+                  {importResult.skipped.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-bold text-amber-800 uppercase tracking-wider flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-amber-600"></span>
+                          <span>Duplicates Skipped ({importResult.skipped.length})</span>
+                        </p>
+                        <span className="text-[11px] text-slate-500">Will be safely omitted</span>
+                      </div>
+                      <div className="max-h-32 overflow-y-auto border border-amber-200 rounded-xl bg-amber-50/50 divide-y divide-amber-100 text-xs">
+                        {importResult.skipped.map((sk, idx) => (
+                          <div key={idx} className="p-2.5 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-bold text-amber-900 bg-amber-100 px-1.5 py-0.5 rounded">
+                                Row {sk.rowNumber}
+                              </span>
+                              <span className="font-semibold text-slate-800">{sk.name}</span>
+                              <span className="font-mono text-slate-500">({sk.email})</span>
+                            </div>
+                            <span className="text-[11px] text-amber-700 font-medium">{sk.reason}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Valid Teachers Preview */}
+                  {importResult.created.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-bold text-emerald-800 uppercase tracking-wider flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
+                        <span>Ready to Import ({importResult.created.length} Teachers)</span>
+                      </p>
+                      <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-xl bg-white divide-y divide-slate-100 text-xs">
+                        {importResult.created.slice(0, 10).map((st, idx) => (
+                          <div key={idx} className="p-2.5 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-slate-400">Row {st.rowNumber}</span>
+                              <span className="font-semibold text-slate-800">{st.name}</span>
+                            </div>
+                            <span className="font-mono text-xs text-blue-700 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-100">
+                              {st.email}
+                            </span>
+                          </div>
+                        ))}
+                        {importResult.created.length > 10 && (
+                          <div className="p-2 text-center text-xs text-slate-400 italic">
+                            + {importResult.created.length - 10} more valid teachers
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* STEP 3: FINAL COMPLETED REPORT & CREDENTIALS */}
+              {importStep === "complete" && importResult && (
+                <div className="space-y-5">
+                  <div className="text-center py-2 space-y-2">
+                    <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
+                      <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                      </svg>
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-900">Import Complete!</h3>
+                    <p className="text-xs text-slate-500">
+                      Successfully imported academic staff accounts. Download temporary credentials below.
+                    </p>
+                  </div>
+
+                  {/* Summary Metric Cards */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-center">
+                      <p className="text-xs font-semibold text-emerald-700">Created</p>
+                      <p className="text-2xl font-bold text-emerald-800 mt-0.5">{importResult.summary.createdCount}</p>
+                    </div>
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-center">
+                      <p className="text-xs font-semibold text-amber-700">Skipped</p>
+                      <p className="text-2xl font-bold text-amber-800 mt-0.5">{importResult.summary.skippedCount}</p>
+                    </div>
+                    <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-center">
+                      <p className="text-xs font-semibold text-rose-700">Errors</p>
+                      <p className="text-2xl font-bold text-rose-800 mt-0.5">{importResult.summary.errorCount}</p>
+                    </div>
+                  </div>
+
+                  {/* Credentials Section */}
+                  {importResult.created.length > 0 && (
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                            Temporary Staff Credentials
+                          </p>
+                          <p className="text-[11px] text-amber-700">
+                            These credentials are only displayed once. Download the CSV or copy them before closing.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleDownloadCredentialsCsv}
+                          className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 shrink-0"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                          </svg>
+                          <span>Download Credentials (CSV)</span>
+                        </button>
+                      </div>
+
+                      <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-xl bg-white divide-y divide-slate-100 text-xs">
+                        {importResult.created.map((st, idx) => (
+                          <div key={idx} className="p-2.5 flex items-center justify-between gap-3">
+                            <div>
+                              <p className="font-semibold text-slate-800">{st.name}</p>
+                              <p className="font-mono text-slate-500 text-[11px]">{st.email}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs font-bold bg-slate-100 px-2.5 py-1 rounded-md text-slate-900 border border-slate-200">
+                                {st.temporaryPassword}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (st.temporaryPassword) {
+                                    navigator.clipboard.writeText(st.temporaryPassword);
+                                    setCopiedIndex(idx);
+                                    setTimeout(() => setCopiedIndex(null), 2000);
+                                  }
+                                }}
+                                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-md hover:bg-slate-100 cursor-pointer"
+                                title="Copy password"
+                              >
+                                {copiedIndex === idx ? (
+                                  <svg className="w-4 h-4 text-emerald-600" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                                  </svg>
+                                ) : (
+                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9 9 9 0 0 0-9 9v2.25" />
+                                  </svg>
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer / Actions */}
+            <div className="p-5 border-t border-slate-100 flex items-center justify-between bg-slate-50/80">
+              {importStep === "select" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleCloseImportModal}
+                    className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-200/60 font-semibold text-sm transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleValidateImport}
+                    disabled={!importFile || importSubmitting}
+                    className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm transition-all shadow-xs hover:shadow-md disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                  >
+                    {importSubmitting ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        <span>Validating CSV...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Validate & Preview</span>
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+                        </svg>
+                      </>
+                    )}
+                  </button>
+                </>
+              )}
+
+              {importStep === "preview" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setImportStep("select");
+                      setImportModalError("");
+                    }}
+                    disabled={importSubmitting}
+                    className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-200/60 font-semibold text-sm transition-colors cursor-pointer"
+                  >
+                    Back to File
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCommitImport}
+                    disabled={importSubmitting || (importResult?.summary.createdCount ?? 0) === 0}
+                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm transition-all shadow-xs hover:shadow-md disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                  >
+                    {importSubmitting ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        <span>Importing Teachers...</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                        </svg>
+                        <span>
+                          Proceed with Import ({importResult?.summary.createdCount ?? 0} Teachers)
+                        </span>
+                      </>
+                    )}
+                  </button>
+                </>
+              )}
+
+              {importStep === "complete" && (
+                <button
+                  type="button"
+                  onClick={handleCloseImportModal}
+                  className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm transition-all shadow-xs hover:shadow-md cursor-pointer"
+                >
+                  Done & Refresh Teacher List
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

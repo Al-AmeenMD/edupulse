@@ -1,8 +1,11 @@
 import { Role } from "@prisma/client";
 import { NextResponse } from "next/server";
-import { hashPassword } from "@/lib/auth";
 import { withAuth } from "@/lib/middleware/withAuth";
 import { prisma } from "@/lib/prisma";
+import {
+  createTeacherCore,
+  TeacherValidationError,
+} from "@/lib/services/teacherService";
 
 export const POST = withAuth(
   async (req) => {
@@ -27,85 +30,28 @@ export const POST = withAuth(
         dob?: string;
       };
 
-      const firstName = body.firstName?.trim();
-      const lastName = body.lastName?.trim();
-      const email = body.email?.trim().toLowerCase();
-      const phone = body.phone?.trim() || undefined;
-      const password = body.password;
-      const employeeId = body.employeeId?.trim() || undefined;
-      const qualification = body.qualification?.trim() || undefined;
-      const dob = body.dob ? new Date(body.dob) : undefined;
-
-      if (!firstName || !lastName || !email || !password) {
-        return NextResponse.json(
-          { error: "First name, last name, email, and password are required" },
-          { status: 400 }
-        );
-      }
-
-      const existingUser = await prisma.user.findUnique({
-        where: { email },
-        select: { id: true },
+      const result = await createTeacherCore({
+        schoolId,
+        firstName: body.firstName || "",
+        lastName: body.lastName || "",
+        email: body.email || "",
+        password: body.password || "",
+        autoGeneratePassword: false, // Strict: requires password
+        phone: body.phone,
+        employeeId: body.employeeId,
+        qualification: body.qualification,
+        dob: body.dob,
+        mustChangePassword: false,
       });
 
-      if (existingUser) {
+      return NextResponse.json({ data: result.teacher }, { status: 201 });
+    } catch (err: any) {
+      if (err instanceof TeacherValidationError) {
         return NextResponse.json(
-          { error: "Email is already registered" },
-          { status: 409 }
+          { error: err.message },
+          { status: err.statusCode }
         );
       }
-
-      const hashedPassword = await hashPassword(password);
-
-      const teacher = await prisma.$transaction(async (tx) => {
-        const user = await tx.user.create({
-          data: {
-            schoolId,
-            email,
-            password: hashedPassword,
-            firstName,
-            lastName,
-            phone,
-            role: Role.TEACHER,
-          },
-        });
-
-        return await tx.teacher.create({
-          data: {
-            userId: user.id,
-            schoolId,
-            employeeId,
-            qualification,
-            dob,
-          },
-          select: {
-            id: true,
-            userId: true,
-            schoolId: true,
-            employeeId: true,
-            qualification: true,
-            dob: true,
-            createdAt: true,
-            updatedAt: true,
-            user: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                email: true,
-                phone: true,
-                role: true,
-                isActive: true,
-                createdAt: true,
-                updatedAt: true,
-              },
-            },
-          },
-        });
-      });
-
-      return NextResponse.json({ data: teacher }, { status: 201 });
-    } catch {
       return NextResponse.json(
         { error: "Internal server error" },
         { status: 500 }
