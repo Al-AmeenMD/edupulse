@@ -25,12 +25,14 @@ export const POST = withAuth(
       const body = (await req.json()) as {
         studentId?: string;
         academicYear?: string;
+        sessionId?: string;
         term?: string;
+        termId?: string;
       };
 
       const studentId = body.studentId?.trim();
-      const academicYear = body.academicYear?.trim();
-      const term = body.term?.trim() || null;
+      let targetSession = body.sessionId?.trim() || body.academicYear?.trim();
+      let targetTerm = body.termId?.trim() || body.term?.trim() || null;
 
       if (!studentId) {
         return NextResponse.json(
@@ -39,11 +41,38 @@ export const POST = withAuth(
         );
       }
 
-      if (!academicYear) {
+      // Resolve academic session
+      let session = null;
+      if (targetSession) {
+        session = await prisma.academicSession.findFirst({
+          where: {
+            schoolId,
+            OR: [{ id: targetSession }, { name: targetSession }],
+          },
+          include: { terms: true },
+        });
+      } else {
+        session = await prisma.academicSession.findFirst({
+          where: { schoolId, isCurrent: true },
+          include: { terms: true },
+        });
+      }
+
+      if (!session) {
         return NextResponse.json(
-          { error: "Academic year is required for enrollment" },
+          { error: "Academic session not found or no active session configured" },
           { status: 400 }
         );
+      }
+
+      let term = null;
+      if (targetTerm) {
+        term =
+          session.terms.find((t) => t.id === targetTerm) ||
+          session.terms.find((t) => t.name.toLowerCase() === targetTerm?.toLowerCase()) ||
+          null;
+      } else {
+        term = session.terms.find((t) => t.isCurrent) || null;
       }
 
       // Verify class exists and belongs to this school
@@ -94,11 +123,13 @@ export const POST = withAuth(
         data: {
           studentId,
           classId: id,
-          academicYear,
-          term,
+          sessionId: session.id,
+          termId: term?.id || null,
           endedAt: null,
         },
         include: {
+          session: true,
+          term: true,
           student: {
             select: {
               id: true,

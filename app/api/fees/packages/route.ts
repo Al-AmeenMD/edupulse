@@ -19,29 +19,35 @@ export const GET = withAuth(
       }
 
       const { searchParams } = new URL(req.url);
-      const academicYear = searchParams.get("academicYear")?.trim();
-      const term = searchParams.get("term")?.trim();
+      const rawSession = searchParams.get("sessionId")?.trim() || searchParams.get("academicYear")?.trim();
+      const rawTerm = searchParams.get("termId")?.trim() || searchParams.get("term")?.trim();
 
       const whereClause: Prisma.FeePackageWhereInput = {
         schoolId,
-        ...(academicYear && academicYear !== "ALL" ? { academicYear } : {}),
-        ...(term && term !== "ALL" ? { term } : {}),
       };
+
+      if (rawSession && rawSession !== "ALL") {
+        whereClause.OR = [
+          { sessionId: rawSession },
+          { session: { name: rawSession } },
+        ];
+      }
+
+      if (rawTerm && rawTerm !== "ALL") {
+        whereClause.termId = rawTerm;
+      }
 
       const packages = await prisma.feePackage.findMany({
         where: whereClause,
         include: {
+          session: true,
+          term: true,
           items: {
             include: {
               feeStructure: {
-                select: {
-                  id: true,
-                  name: true,
-                  type: true,
-                  amount: true,
-                  academicYear: true,
+                include: {
+                  session: true,
                   term: true,
-                  dueDate: true,
                 },
               },
             },
@@ -63,8 +69,12 @@ export const GET = withAuth(
           id: pkg.id,
           name: pkg.name,
           description: pkg.description,
-          academicYear: pkg.academicYear,
-          term: pkg.term,
+          sessionId: pkg.sessionId,
+          termId: pkg.termId,
+          academicYear: pkg.session?.name || "N/A",
+          term: pkg.term?.name || null,
+          session: pkg.session,
+          termObj: pkg.term,
           totalAmount: total.toFixed(2),
           structuresCount: pkg.items.length,
           createdAt: pkg.createdAt,
@@ -76,6 +86,8 @@ export const GET = withAuth(
               ? {
                   ...it.feeStructure,
                   amount: new Prisma.Decimal(it.feeStructure.amount).toFixed(2),
+                  academicYear: it.feeStructure.session?.name || "N/A",
+                  term: it.feeStructure.term?.name || null,
                 }
               : null,
           })),
@@ -112,23 +124,25 @@ export const POST = withAuth(
       const body = (await req.json()) as {
         name?: string;
         description?: string;
+        sessionId?: string;
         academicYear?: string;
+        termId?: string;
         term?: string;
         feeStructureIds?: string[];
       };
 
       const name = body.name?.trim();
       const description = body.description?.trim() || null;
-      const academicYear = body.academicYear?.trim();
-      const term = body.term?.trim() || null;
+      const rawSession = body.sessionId?.trim() || body.academicYear?.trim();
+      const rawTerm = body.termId?.trim() || body.term?.trim() || null;
       const feeStructureIds = body.feeStructureIds;
 
       if (!name) {
         return NextResponse.json({ error: "Package name is required" }, { status: 400 });
       }
 
-      if (!academicYear) {
-        return NextResponse.json({ error: "Academic year is required" }, { status: 400 });
+      if (!rawSession) {
+        return NextResponse.json({ error: "Academic session is required" }, { status: 400 });
       }
 
       if (!Array.isArray(feeStructureIds) || feeStructureIds.length === 0) {
@@ -136,6 +150,36 @@ export const POST = withAuth(
           { error: "At least one fee structure is required in the package" },
           { status: 400 }
         );
+      }
+
+      // Resolve academic session
+      const session = await prisma.academicSession.findFirst({
+        where: {
+          schoolId,
+          OR: [{ id: rawSession }, { name: rawSession }],
+        },
+        include: { terms: true },
+      });
+
+      if (!session) {
+        return NextResponse.json(
+          { error: "Academic session not found in this school" },
+          { status: 404 }
+        );
+      }
+      const sessionId = session.id;
+
+      let termId: string | null = null;
+      if (rawTerm) {
+        const foundTerm = session.terms.find(
+          (t) =>
+            t.id === rawTerm ||
+            t.name.toLowerCase() === rawTerm.toLowerCase() ||
+            (rawTerm === "1" && t.name.includes("First")) ||
+            (rawTerm === "2" && t.name.includes("Second")) ||
+            (rawTerm === "3" && t.name.includes("Third"))
+        );
+        termId = foundTerm ? foundTerm.id : null;
       }
 
       // Deduplicate structure IDs
@@ -152,8 +196,8 @@ export const POST = withAuth(
         where: {
           schoolId,
           name: { equals: name, mode: "insensitive" },
-          academicYear,
-          term,
+          sessionId,
+          termId,
         },
       });
 
@@ -170,12 +214,9 @@ export const POST = withAuth(
           id: { in: uniqueStructureIds },
           schoolId,
         },
-        select: {
-          id: true,
-          name: true,
-          academicYear: true,
+        include: {
+          session: true,
           term: true,
-          amount: true,
         },
       });
 
@@ -186,24 +227,24 @@ export const POST = withAuth(
         );
       }
 
-      // Check academic year compatibility
-      const incompatibleYear = validStructures.find((s) => s.academicYear !== academicYear);
-      if (incompatibleYear) {
+      // Check academic session compatibility
+      const incompatibleSession = validStructures.find((s) => s.sessionId !== sessionId);
+      if (incompatibleSession) {
         return NextResponse.json(
           {
-            error: `Fee structure '${incompatibleYear.name}' belongs to session '${incompatibleYear.academicYear}', which is incompatible with package session '${academicYear}'`,
+            error: `Fee structure '${incompatibleSession.name}' belongs to session '${incompatibleSession.session.name}', which is incompatible with package session '${session.name}'`,
           },
           { status: 400 }
         );
       }
 
       // If package has a specific term, verify term compatibility
-      if (term && term !== "ALL") {
-        const incompatibleTerm = validStructures.find((s) => s.term && s.term !== term);
+      if (termId) {
+        const incompatibleTerm = validStructures.find((s) => s.termId && s.termId !== termId);
         if (incompatibleTerm) {
           return NextResponse.json(
             {
-              error: `Fee structure '${incompatibleTerm.name}' belongs to '${incompatibleTerm.term}', which is incompatible with package term '${term}'`,
+              error: `Fee structure '${incompatibleTerm.name}' belongs to a different term, which is incompatible with package term`,
             },
             { status: 400 }
           );
@@ -217,8 +258,8 @@ export const POST = withAuth(
             schoolId,
             name,
             description,
-            academicYear,
-            term,
+            sessionId,
+            termId,
             items: {
               create: uniqueStructureIds.map((structId) => ({
                 feeStructureId: structId,
@@ -226,9 +267,16 @@ export const POST = withAuth(
             },
           },
           include: {
+            session: true,
+            term: true,
             items: {
               include: {
-                feeStructure: true,
+                feeStructure: {
+                  include: {
+                    session: true,
+                    term: true,
+                  },
+                },
               },
             },
           },
@@ -250,8 +298,10 @@ export const POST = withAuth(
             id: newPackage.id,
             name: newPackage.name,
             description: newPackage.description,
-            academicYear: newPackage.academicYear,
-            term: newPackage.term,
+            sessionId: newPackage.sessionId,
+            termId: newPackage.termId,
+            academicYear: newPackage.session.name,
+            term: newPackage.term?.name || null,
             totalAmount: total.toFixed(2),
             structuresCount: newPackage.items.length,
             createdAt: newPackage.createdAt,

@@ -35,6 +35,7 @@ model School {
   budgets       Budget[]
   feePackages   FeePackage[]
   packagePayments PackagePayment[]
+  academicSessions AcademicSession[]
   proprietorSchools ProprietorSchool[] @relation("ProprietorSchools")
 
   @@map("schools")
@@ -177,18 +178,21 @@ model Class {
 }
 
 model ClassEnrollment {
-  id           String    @id @default(cuid())
-  studentId    String
-  classId      String
-  academicYear String
-  term         String?
-  enrolledAt   DateTime  @default(now())
-  endedAt      DateTime?
+  id         String    @id @default(cuid())
+  studentId  String
+  classId    String
+  sessionId  String
+  termId     String?
+  enrolledAt DateTime  @default(now())
+  endedAt    DateTime?
 
-  student      Student   @relation(fields: [studentId], references: [id])
-  class        Class     @relation(fields: [classId], references: [id])
+  student    Student         @relation(fields: [studentId], references: [id])
+  class      Class           @relation(fields: [classId], references: [id])
+  session    AcademicSession @relation(fields: [sessionId], references: [id])
+  term       Term?           @relation(fields: [termId], references: [id])
 
   @@index([classId])
+  @@index([sessionId, classId])
   @@index([studentId, enrolledAt])
   @@index([classId, endedAt])
   @@index([studentId, endedAt])
@@ -269,22 +273,24 @@ enum FeeType {
 }
 
 model FeeStructure {
-  id           String           @id @default(cuid())
-  schoolId     String
-  name         String
-  type         FeeType
-  amount       Decimal          @db.Decimal(10, 2)
-  academicYear String
-  term         String?
-  dueDate      DateTime
-  createdAt    DateTime         @default(now())
+  id        String           @id @default(cuid())
+  schoolId  String
+  name      String
+  type      FeeType
+  amount    Decimal          @db.Decimal(10, 2)
+  sessionId String
+  termId    String?
+  dueDate   DateTime
+  createdAt DateTime         @default(now())
 
   school       School           @relation(fields: [schoolId], references: [id])
+  session      AcademicSession  @relation(fields: [sessionId], references: [id])
+  term         Term?            @relation(fields: [termId], references: [id])
   fees         Fee[]
   packageItems FeePackageItem[]
 
   @@index([schoolId])
-  @@index([schoolId, academicYear, term])
+  @@index([schoolId, sessionId, termId])
   @@map("fee_structures")
 }
 
@@ -315,24 +321,30 @@ model Fee {
 }
 
 model Payment {
-  id               String          @id @default(cuid())
-  schoolId         String
-  feeId            String
-  packagePaymentId String?
-  classId          String?
-  className        String?
-  receiptNumber    String
-  amount           Decimal         @db.Decimal(10, 2)
-  method           String
-  reference        String?
-  recordedBy       String
-  paidAt           DateTime        @default(now())
-  deletedAt        DateTime?
+  id                  String           @id @default(cuid())
+  schoolId            String
+  feeId               String
+  packagePaymentId    String?
+  classId             String?
+  className           String?
+  academicSessionName String?
+  termName            String?
+  sessionId           String?
+  termId              String?
+  receiptNumber       String
+  amount              Decimal          @db.Decimal(10, 2)
+  method              String
+  reference           String?
+  recordedBy          String
+  paidAt              DateTime         @default(now())
+  deletedAt           DateTime?
 
-  school           School          @relation(fields: [schoolId], references: [id])
-  fee              Fee             @relation(fields: [feeId], references: [id])
-  packagePayment   PackagePayment? @relation(fields: [packagePaymentId], references: [id], onDelete: SetNull)
-  class            Class?          @relation(fields: [classId], references: [id], onDelete: SetNull)
+  school              School           @relation(fields: [schoolId], references: [id])
+  fee                 Fee              @relation(fields: [feeId], references: [id])
+  packagePayment      PackagePayment?  @relation(fields: [packagePaymentId], references: [id], onDelete: SetNull)
+  class               Class?           @relation(fields: [classId], references: [id], onDelete: SetNull)
+  session             AcademicSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  term                Term?            @relation(fields: [termId], references: [id], onDelete: SetNull)
 
   @@unique([schoolId, receiptNumber])
   @@index([schoolId, paidAt])
@@ -340,6 +352,7 @@ model Payment {
   @@index([feeId, deletedAt])
   @@index([packagePaymentId])
   @@index([schoolId, classId])
+  @@index([schoolId, sessionId, termId])
   @@map("payments")
 }
 
@@ -439,50 +452,56 @@ model Submission {
 }
 
 model Budget {
-  id           String           @id @default(cuid())
-  schoolId     String
-  academicYear String
-  term         String
-  amount       Decimal          @db.Decimal(10, 2)
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
+  id        String           @id @default(cuid())
+  schoolId  String
+  sessionId String
+  termId    String
+  amount    Decimal          @db.Decimal(10, 2)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
 
-  school       School           @relation(fields: [schoolId], references: [id])
-  auditLogs    BudgetAuditLog[]
+  school    School           @relation(fields: [schoolId], references: [id])
+  session   AcademicSession  @relation(fields: [sessionId], references: [id])
+  term      Term             @relation(fields: [termId], references: [id])
+  auditLogs BudgetAuditLog[]
 
-  @@unique([schoolId, academicYear, term])
+  @@unique([schoolId, sessionId, termId])
   @@map("budgets")
 }
 
 model BudgetAuditLog {
-  id             String   @id @default(cuid())
-  budgetId       String
-  changedBy      String
-  changedAt      DateTime @default(now())
-  previousAmount Decimal? @db.Decimal(10, 2)
-  newAmount      Decimal  @db.Decimal(10, 2)
+  id                  String   @id @default(cuid())
+  budgetId            String
+  changedBy           String
+  changedAt           DateTime @default(now())
+  previousAmount      Decimal? @db.Decimal(10, 2)
+  newAmount           Decimal  @db.Decimal(10, 2)
+  academicSessionName String?
+  termName            String?
 
-  budget         Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  budget              Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
 
   @@index([budgetId, changedAt])
   @@map("budget_audit_logs")
 }
 
 model FeePackage {
-  id           String           @id @default(cuid())
-  schoolId     String
-  name         String
-  description  String?
-  academicYear String
-  term         String?
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
+  id          String           @id @default(cuid())
+  schoolId    String
+  name        String
+  description String?
+  sessionId   String
+  termId      String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
 
-  school       School           @relation(fields: [schoolId], references: [id])
-  items        FeePackageItem[]
-  payments     PackagePayment[]
+  school      School           @relation(fields: [schoolId], references: [id])
+  session     AcademicSession  @relation(fields: [sessionId], references: [id])
+  term        Term?            @relation(fields: [termId], references: [id])
+  items       FeePackageItem[]
+  payments    PackagePayment[]
 
-  @@unique([schoolId, name, academicYear, term])
+  @@unique([schoolId, name, sessionId, termId])
   @@map("fee_packages")
 }
 
@@ -500,27 +519,33 @@ model FeePackageItem {
 }
 
 model PackagePayment {
-  id            String       @id @default(cuid())
-  schoolId      String
-  packageId     String?
-  studentId     String
-  classId       String?
-  className     String?
-  receiptNumber String
-  amount        Decimal      @db.Decimal(10, 2)
-  method        String
-  reference     String?
-  note          String?
-  recordedBy    String
-  paidAt        DateTime     @default(now())
-  deletedAt     DateTime?
-  createdAt     DateTime     @default(now())
+  id                  String           @id @default(cuid())
+  schoolId            String
+  packageId           String?
+  studentId           String
+  classId             String?
+  className           String?
+  academicSessionName String?
+  termName            String?
+  sessionId           String?
+  termId              String?
+  receiptNumber       String
+  amount              Decimal          @db.Decimal(10, 2)
+  method              String
+  reference           String?
+  note                String?
+  recordedBy          String
+  paidAt              DateTime         @default(now())
+  deletedAt           DateTime?
+  createdAt           DateTime         @default(now())
 
-  school        School       @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  package       FeePackage?  @relation(fields: [packageId], references: [id], onDelete: SetNull)
-  student       Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  class         Class?       @relation(fields: [classId], references: [id], onDelete: SetNull)
-  payments      Payment[]
+  school              School           @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  package             FeePackage?      @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  student             Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  class               Class?           @relation(fields: [classId], references: [id], onDelete: SetNull)
+  session             AcademicSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  term                Term?            @relation(fields: [termId], references: [id], onDelete: SetNull)
+  payments            Payment[]
 
   @@unique([schoolId, receiptNumber])
   @@index([schoolId, paidAt])
@@ -528,7 +553,55 @@ model PackagePayment {
   @@index([studentId])
   @@index([packageId])
   @@index([schoolId, classId])
+  @@index([schoolId, sessionId, termId])
   @@map("package_payments")
+}
+
+model AcademicSession {
+  id        String    @id @default(cuid())
+  schoolId  String
+  name      String
+  startDate DateTime?
+  endDate   DateTime?
+  isCurrent Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  school          School            @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  terms           Term[]
+  enrollments     ClassEnrollment[]
+  feeStructures   FeeStructure[]
+  budgets         Budget[]
+  feePackages     FeePackage[]
+  payments        Payment[]
+  packagePayments PackagePayment[]
+
+  @@unique([schoolId, name])
+  @@index([schoolId, isCurrent])
+  @@map("academic_sessions")
+}
+
+model Term {
+  id        String    @id @default(cuid())
+  sessionId String
+  name      String
+  startDate DateTime?
+  endDate   DateTime?
+  isCurrent Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  session         AcademicSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  enrollments     ClassEnrollment[]
+  feeStructures   FeeStructure[]
+  budgets         Budget[]
+  feePackages     FeePackage[]
+  payments        Payment[]
+  packagePayments PackagePayment[]
+
+  @@unique([sessionId, name])
+  @@index([sessionId, isCurrent])
+  @@map("terms")
 }
 
 

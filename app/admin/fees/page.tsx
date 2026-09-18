@@ -10,6 +10,19 @@ import { StudentSelector } from "@/components/ui/StudentSelector";
 type FeeType = "TUITION" | "TRANSPORT" | "UNIFORM" | "EXAM" | "MISCELLANEOUS" | "FEEDING";
 type FeeStatus = "PENDING" | "PAID" | "OVERDUE" | "PARTIAL" | "WAIVED";
 
+interface TermItem {
+  id: string;
+  name: string;
+  isCurrent: boolean;
+}
+
+interface AcademicSessionItem {
+  id: string;
+  name: string;
+  isCurrent: boolean;
+  terms: TermItem[];
+}
+
 const FEE_STATUS_ALLOWED_TRANSITIONS: Record<string, FeeStatus[]> = {
   PENDING: ["OVERDUE", "WAIVED"],
   OVERDUE: ["PENDING", "WAIVED"],
@@ -162,12 +175,15 @@ export default function FeesManagementPage() {
   const [loadingStructures, setLoadingStructures] = useState(true);
   const [structureSessionFilter, setStructureSessionFilter] = useState<string>("ALL");
   const [structureTermFilter, setStructureTermFilter] = useState<string>("ALL");
+  const [academicSessions, setAcademicSessions] = useState<AcademicSessionItem[]>([]);
   const [isCreateStructureOpen, setIsCreateStructureOpen] = useState(false);
   const [createStructureForm, setCreateStructureForm] = useState({
     name: "",
     type: "TUITION" as FeeType,
     amount: "",
+    sessionId: "",
     academicYear: "2025/2026",
+    termId: "",
     term: "First Term",
     dueDate: "",
   });
@@ -208,7 +224,9 @@ export default function FeesManagementPage() {
   const [createPackageForm, setCreatePackageForm] = useState({
     name: "",
     description: "",
+    sessionId: "",
     academicYear: "2025/2026",
+    termId: "",
     term: "First Term",
     feeStructureIds: [] as string[],
   });
@@ -219,7 +237,9 @@ export default function FeesManagementPage() {
   const [editPackageForm, setEditPackageForm] = useState({
     name: "",
     description: "",
+    sessionId: "",
     academicYear: "2025/2026",
+    termId: "",
     term: "First Term",
     feeStructureIds: [] as string[],
   });
@@ -506,7 +526,9 @@ export default function FeesManagementPage() {
     name: "",
     type: "TUITION" as FeeType,
     amount: "",
+    sessionId: "",
     academicYear: "2025/2026",
+    termId: "",
     term: "Term 1",
     dueDate: "",
   });
@@ -528,11 +550,15 @@ export default function FeesManagementPage() {
     setSuccessMessage("");
     setEditingStructure(st);
     const amountStr = String(st.amount);
+    const matchedSession = academicSessions.find((s) => s.name === st.academicYear);
+    const matchedTerm = matchedSession?.terms.find((t) => t.name === st.term);
     setEditStructureForm({
       name: st.name,
       type: st.type,
       amount: amountStr,
+      sessionId: (st as any).sessionId || matchedSession?.id || "",
       academicYear: st.academicYear,
+      termId: (st as any).termId || matchedTerm?.id || "",
       term: st.term || "",
       dueDate: st.dueDate ? st.dueDate.split("T")[0] : "",
     });
@@ -817,10 +843,48 @@ export default function FeesManagementPage() {
     }
   }
 
+  async function fetchAcademicSessions() {
+    try {
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) return;
+
+      const res = await fetch("/api/academic-sessions", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const list: AcademicSessionItem[] = data.data || [];
+        setAcademicSessions(list);
+        const current = list.find((s) => s.isCurrent) || list[0];
+        if (current) {
+          const currentTerm = current.terms.find((t) => t.isCurrent) || current.terms[0];
+          setCreateStructureForm((prev) => ({
+            ...prev,
+            sessionId: current.id,
+            academicYear: current.name,
+            termId: currentTerm?.id || "",
+            term: currentTerm?.name || "First Term",
+          }));
+          setCreatePackageForm((prev) => ({
+            ...prev,
+            sessionId: current.id,
+            academicYear: current.name,
+            termId: currentTerm?.id || "",
+            term: currentTerm?.name || "First Term",
+          }));
+        }
+      }
+    } catch (err) {
+      console.error("Error loading academic sessions:", err);
+    }
+  }
+
   useEffect(() => {
     fetchStructures();
     fetchAllStructuresForFilters();
     fetchStudentsAndClasses();
+    fetchAcademicSessions();
   }, []);
 
   useEffect(() => {
@@ -1084,6 +1148,8 @@ export default function FeesManagementPage() {
         name: createStructureForm.name.trim(),
         type: createStructureForm.type,
         amount: parseFloat(createStructureForm.amount),
+        sessionId: createStructureForm.sessionId || undefined,
+        termId: createStructureForm.termId || undefined,
         academicYear: createStructureForm.academicYear.trim(),
         term: createStructureForm.term.trim() || undefined,
         dueDate: createStructureForm.dueDate,
@@ -1106,7 +1172,9 @@ export default function FeesManagementPage() {
         name: "",
         type: "TUITION",
         amount: "",
+        sessionId: "",
         academicYear: "2025/2026",
+        termId: "",
         term: "Term 1",
         dueDate: "",
       });
@@ -1145,6 +1213,8 @@ export default function FeesManagementPage() {
         name: editStructureForm.name.trim(),
         type: editStructureForm.type,
         amount: editStructureForm.amount.trim(),
+        sessionId: editStructureForm.sessionId || undefined,
+        termId: editStructureForm.termId || undefined,
         academicYear: editStructureForm.academicYear.trim(),
         term: editStructureForm.term.trim() || undefined,
         dueDate: editStructureForm.dueDate,
@@ -1390,6 +1460,8 @@ export default function FeesManagementPage() {
       const payload = {
         name: createPackageForm.name.trim(),
         description: createPackageForm.description.trim() || undefined,
+        sessionId: createPackageForm.sessionId || undefined,
+        termId: createPackageForm.termId || undefined,
         academicYear: createPackageForm.academicYear.trim(),
         term: createPackageForm.term.trim() || undefined,
         feeStructureIds: createPackageForm.feeStructureIds,
@@ -1411,7 +1483,9 @@ export default function FeesManagementPage() {
       setCreatePackageForm({
         name: "",
         description: "",
+        sessionId: "",
         academicYear: "2025/2026",
+        termId: "",
         term: "First Term",
         feeStructureIds: [],
       });
@@ -1429,10 +1503,14 @@ export default function FeesManagementPage() {
   function handleOpenEditPackage(pkg: FeePackageItem) {
     setError("");
     setEditingPackage(pkg);
+    const matchedSession = academicSessions.find((s) => s.name === pkg.academicYear);
+    const matchedTerm = matchedSession?.terms.find((t) => t.name === pkg.term);
     setEditPackageForm({
       name: pkg.name,
       description: pkg.description || "",
+      sessionId: (pkg as any).sessionId || matchedSession?.id || "",
       academicYear: pkg.academicYear,
+      termId: (pkg as any).termId || matchedTerm?.id || "",
       term: pkg.term || "First Term",
       feeStructureIds: pkg.items.map((it) => it.feeStructureId),
     });
@@ -1464,6 +1542,8 @@ export default function FeesManagementPage() {
       const payload = {
         name: editPackageForm.name.trim(),
         description: editPackageForm.description.trim() || undefined,
+        sessionId: editPackageForm.sessionId || undefined,
+        termId: editPackageForm.termId || undefined,
         academicYear: editPackageForm.academicYear.trim(),
         term: editPackageForm.term.trim() || undefined,
         feeStructureIds: editPackageForm.feeStructureIds,
@@ -2019,12 +2099,16 @@ export default function FeesManagementPage() {
           <button
             onClick={() => {
               setError("");
+              const currentSess = academicSessions.find((s) => s.isCurrent) || academicSessions[0];
+              const currentTerm = currentSess?.terms.find((t) => t.isCurrent) || currentSess?.terms[0];
               setCreateStructureForm({
                 name: "",
                 type: "TUITION",
                 amount: "",
-                academicYear: "2025/2026",
-                term: "First Term",
+                sessionId: currentSess?.id || "",
+                academicYear: currentSess?.name || "2025/2026",
+                termId: currentTerm?.id || "",
+                term: currentTerm?.name || "First Term",
                 dueDate: "",
               });
               setCreateStructureDisplayAmount("");
@@ -2043,11 +2127,15 @@ export default function FeesManagementPage() {
           <button
             onClick={() => {
               setError("");
+              const currentSess = academicSessions.find((s) => s.isCurrent) || academicSessions[0];
+              const currentTerm = currentSess?.terms.find((t) => t.isCurrent) || currentSess?.terms[0];
               setCreatePackageForm({
                 name: "",
                 description: "",
-                academicYear: structureSessionFilter !== "ALL" ? structureSessionFilter : "2025/2026",
-                term: structureTermFilter !== "ALL" ? structureTermFilter : "First Term",
+                sessionId: currentSess?.id || "",
+                academicYear: currentSess?.name || (structureSessionFilter !== "ALL" ? structureSessionFilter : "2025/2026"),
+                termId: currentTerm?.id || "",
+                term: currentTerm?.name || (structureTermFilter !== "ALL" ? structureTermFilter : "First Term"),
                 feeStructureIds: [],
               });
               setIsCreatePackageOpen(true);
@@ -3045,16 +3133,31 @@ export default function FeesManagementPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
-                    Academic Year *
+                    Academic Session *
                   </label>
-                  <input
-                    type="text"
+                  <select
                     required
-                    placeholder="2025/2026"
-                    value={createStructureForm.academicYear}
-                    onChange={(e) => setCreateStructureForm({ ...createStructureForm, academicYear: e.target.value })}
-                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
-                  />
+                    value={createStructureForm.sessionId || createStructureForm.academicYear}
+                    onChange={(e) => {
+                      const selId = e.target.value;
+                      const sess = academicSessions.find((s) => s.id === selId || s.name === selId);
+                      setCreateStructureForm({
+                        ...createStructureForm,
+                        sessionId: sess ? sess.id : selId,
+                        academicYear: sess ? sess.name : selId,
+                        termId: "",
+                        term: "",
+                      });
+                    }}
+                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                  >
+                    <option value="">Select Session...</option>
+                    {academicSessions.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} {s.isCurrent ? "(Current)" : ""}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="space-y-1">
@@ -3062,13 +3165,31 @@ export default function FeesManagementPage() {
                     Term
                   </label>
                   <select
-                    value={createStructureForm.term}
-                    onChange={(e) => setCreateStructureForm({ ...createStructureForm, term: e.target.value })}
+                    value={createStructureForm.termId || createStructureForm.term}
+                    onChange={(e) => {
+                      const selTermId = e.target.value;
+                      const sess = academicSessions.find(
+                        (s) => s.id === createStructureForm.sessionId || s.name === createStructureForm.academicYear
+                      );
+                      const t = sess?.terms.find((term) => term.id === selTermId || term.name === selTermId);
+                      setCreateStructureForm({
+                        ...createStructureForm,
+                        termId: t ? t.id : selTermId,
+                        term: t ? t.name : selTermId,
+                      });
+                    }}
                     className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
                   >
-                    <option value="Term 1">Term 1</option>
-                    <option value="Term 2">Term 2</option>
-                    <option value="Term 3">Term 3</option>
+                    <option value="">Select Term (Optional)...</option>
+                    {(
+                      academicSessions.find(
+                        (s) => s.id === createStructureForm.sessionId || s.name === createStructureForm.academicYear
+                      )?.terms || []
+                    ).map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} {t.isCurrent ? "(Current)" : ""}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -3188,16 +3309,31 @@ export default function FeesManagementPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
-                    Academic Year *
+                    Academic Session *
                   </label>
-                  <input
-                    type="text"
+                  <select
                     required
-                    placeholder="2025/2026"
-                    value={editStructureForm.academicYear}
-                    onChange={(e) => setEditStructureForm({ ...editStructureForm, academicYear: e.target.value })}
-                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
-                  />
+                    value={editStructureForm.sessionId || editStructureForm.academicYear}
+                    onChange={(e) => {
+                      const selId = e.target.value;
+                      const sess = academicSessions.find((s) => s.id === selId || s.name === selId);
+                      setEditStructureForm({
+                        ...editStructureForm,
+                        sessionId: sess ? sess.id : selId,
+                        academicYear: sess ? sess.name : selId,
+                        termId: "",
+                        term: "",
+                      });
+                    }}
+                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                  >
+                    <option value="">Select Session...</option>
+                    {academicSessions.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} {s.isCurrent ? "(Current)" : ""}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="space-y-1">
@@ -3205,14 +3341,31 @@ export default function FeesManagementPage() {
                     Term
                   </label>
                   <select
-                    value={editStructureForm.term}
-                    onChange={(e) => setEditStructureForm({ ...editStructureForm, term: e.target.value })}
+                    value={editStructureForm.termId || editStructureForm.term}
+                    onChange={(e) => {
+                      const selTermId = e.target.value;
+                      const sess = academicSessions.find(
+                        (s) => s.id === editStructureForm.sessionId || s.name === editStructureForm.academicYear
+                      );
+                      const t = sess?.terms.find((term) => term.id === selTermId || term.name === selTermId);
+                      setEditStructureForm({
+                        ...editStructureForm,
+                        termId: t ? t.id : selTermId,
+                        term: t ? t.name : selTermId,
+                      });
+                    }}
                     className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
                   >
-                    <option value="">None</option>
-                    <option value="Term 1">Term 1</option>
-                    <option value="Term 2">Term 2</option>
-                    <option value="Term 3">Term 3</option>
+                    <option value="">None / Unspecified</option>
+                    {(
+                      academicSessions.find(
+                        (s) => s.id === editStructureForm.sessionId || s.name === editStructureForm.academicYear
+                      )?.terms || []
+                    ).map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} {t.isCurrent ? "(Current)" : ""}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -4161,16 +4314,31 @@ export default function FeesManagementPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
-                    Academic Year *
+                    Academic Session *
                   </label>
-                  <input
-                    type="text"
+                  <select
                     required
-                    placeholder="2025/2026"
-                    value={createPackageForm.academicYear}
-                    onChange={(e) => setCreatePackageForm({ ...createPackageForm, academicYear: e.target.value })}
-                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
-                  />
+                    value={createPackageForm.sessionId || createPackageForm.academicYear}
+                    onChange={(e) => {
+                      const selId = e.target.value;
+                      const sess = academicSessions.find((s) => s.id === selId || s.name === selId);
+                      setCreatePackageForm({
+                        ...createPackageForm,
+                        sessionId: sess ? sess.id : selId,
+                        academicYear: sess ? sess.name : selId,
+                        termId: "",
+                        term: "",
+                      });
+                    }}
+                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                  >
+                    <option value="">Select Session...</option>
+                    {academicSessions.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} {s.isCurrent ? "(Current)" : ""}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="space-y-1">
@@ -4178,17 +4346,31 @@ export default function FeesManagementPage() {
                     Term (Optional)
                   </label>
                   <select
-                    value={createPackageForm.term}
-                    onChange={(e) => setCreatePackageForm({ ...createPackageForm, term: e.target.value })}
+                    value={createPackageForm.termId || createPackageForm.term}
+                    onChange={(e) => {
+                      const selTermId = e.target.value;
+                      const sess = academicSessions.find(
+                        (s) => s.id === createPackageForm.sessionId || s.name === createPackageForm.academicYear
+                      );
+                      const t = sess?.terms.find((term) => term.id === selTermId || term.name === selTermId);
+                      setCreatePackageForm({
+                        ...createPackageForm,
+                        termId: t ? t.id : selTermId,
+                        term: t ? t.name : selTermId,
+                      });
+                    }}
                     className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
                   >
                     <option value="">All Terms / Unspecified</option>
-                    <option value="First Term">First Term</option>
-                    <option value="Second Term">Second Term</option>
-                    <option value="Third Term">Third Term</option>
-                    <option value="Term 1">Term 1</option>
-                    <option value="Term 2">Term 2</option>
-                    <option value="Term 3">Term 3</option>
+                    {(
+                      academicSessions.find(
+                        (s) => s.id === createPackageForm.sessionId || s.name === createPackageForm.academicYear
+                      )?.terms || []
+                    ).map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} {t.isCurrent ? "(Current)" : ""}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -4334,15 +4516,31 @@ export default function FeesManagementPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
-                    Academic Year *
+                    Academic Session *
                   </label>
-                  <input
-                    type="text"
+                  <select
                     required
-                    value={editPackageForm.academicYear}
-                    onChange={(e) => setEditPackageForm({ ...editPackageForm, academicYear: e.target.value })}
-                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
-                  />
+                    value={editPackageForm.sessionId || editPackageForm.academicYear}
+                    onChange={(e) => {
+                      const selId = e.target.value;
+                      const sess = academicSessions.find((s) => s.id === selId || s.name === selId);
+                      setEditPackageForm({
+                        ...editPackageForm,
+                        sessionId: sess ? sess.id : selId,
+                        academicYear: sess ? sess.name : selId,
+                        termId: "",
+                        term: "",
+                      });
+                    }}
+                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                  >
+                    <option value="">Select Session...</option>
+                    {academicSessions.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} {s.isCurrent ? "(Current)" : ""}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="space-y-1">
@@ -4350,17 +4548,31 @@ export default function FeesManagementPage() {
                     Term (Optional)
                   </label>
                   <select
-                    value={editPackageForm.term}
-                    onChange={(e) => setEditPackageForm({ ...editPackageForm, term: e.target.value })}
+                    value={editPackageForm.termId || editPackageForm.term}
+                    onChange={(e) => {
+                      const selTermId = e.target.value;
+                      const sess = academicSessions.find(
+                        (s) => s.id === editPackageForm.sessionId || s.name === editPackageForm.academicYear
+                      );
+                      const t = sess?.terms.find((term) => term.id === selTermId || term.name === selTermId);
+                      setEditPackageForm({
+                        ...editPackageForm,
+                        termId: t ? t.id : selTermId,
+                        term: t ? t.name : selTermId,
+                      });
+                    }}
                     className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
                   >
                     <option value="">All Terms / Unspecified</option>
-                    <option value="First Term">First Term</option>
-                    <option value="Second Term">Second Term</option>
-                    <option value="Third Term">Third Term</option>
-                    <option value="Term 1">Term 1</option>
-                    <option value="Term 2">Term 2</option>
-                    <option value="Term 3">Term 3</option>
+                    {(
+                      academicSessions.find(
+                        (s) => s.id === editPackageForm.sessionId || s.name === editPackageForm.academicYear
+                      )?.terms || []
+                    ).map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} {t.isCurrent ? "(Current)" : ""}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>

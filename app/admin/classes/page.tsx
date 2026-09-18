@@ -6,6 +6,19 @@ import { TeacherSelector, TeacherItem } from "@/components/ui/TeacherSelector";
 
 interface Teacher extends TeacherItem {}
 
+interface TermItem {
+  id: string;
+  name: string;
+  isCurrent: boolean;
+}
+
+interface AcademicSessionItem {
+  id: string;
+  name: string;
+  isCurrent: boolean;
+  terms: TermItem[];
+}
+
 interface ClassItem {
   id: string;
   name: string;
@@ -68,11 +81,14 @@ export default function ClassesPage() {
   const [editModalError, setEditModalError] = useState("");
   const [editSubmitting, setEditSubmitting] = useState(false);
 
+  // Academic Sessions & Terms State
+  const [academicSessions, setAcademicSessions] = useState<AcademicSessionItem[]>([]);
+
   // Promotion Modal State
   const [promotingClass, setPromotingClass] = useState<ClassItem | null>(null);
   const [promoteTargetClassId, setPromoteTargetClassId] = useState("");
-  const [promoteAcademicYear, setPromoteAcademicYear] = useState("2026/2027");
-  const [promoteTerm, setPromoteTerm] = useState("Term 1");
+  const [promoteSessionId, setPromoteSessionId] = useState("");
+  const [promoteTermId, setPromoteTermId] = useState("");
   const [promoteSubmitting, setPromoteSubmitting] = useState(false);
   const [promoteError, setPromoteError] = useState("");
   const [promoteStudents, setPromoteStudents] = useState<EnrolledStudent[]>([]);
@@ -85,7 +101,7 @@ export default function ClassesPage() {
   const [enrolledLoading, setEnrolledLoading] = useState(false);
   const [allSchoolStudents, setAllSchoolStudents] = useState<EnrolledStudent[]>([]);
   const [selectedStudentToEnroll, setSelectedStudentToEnroll] = useState("");
-  const [enrollAcademicYear, setEnrollAcademicYear] = useState("2026/2027");
+  const [enrollSessionId, setEnrollSessionId] = useState("");
   const [enrolling, setEnrolling] = useState(false);
   const [enrollError, setEnrollError] = useState("");
   const [removingStudentId, setRemovingStudentId] = useState<string | null>(null);
@@ -133,9 +149,39 @@ export default function ClassesPage() {
     }
   }
 
+  // Fetch Academic Sessions for Session & Term Selectors
+  async function fetchAcademicSessions() {
+    try {
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) return;
+
+      const res = await fetch("/api/academic-sessions", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const list: AcademicSessionItem[] = data.data || [];
+        setAcademicSessions(list);
+        const current = list.find((s) => s.isCurrent) || list[0];
+        if (current) {
+          setEnrollSessionId(current.id);
+          setPromoteSessionId(current.id);
+          const currentTerm = current.terms.find((t) => t.isCurrent) || current.terms[0];
+          if (currentTerm) {
+            setPromoteTermId(currentTerm.id);
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error("Failed to fetch academic sessions:", err);
+    }
+  }
+
   useEffect(() => {
     fetchTeachers();
     fetchAllSchoolStudents();
+    fetchAcademicSessions();
   }, []);
 
   // Fetch Classes with AbortController for Search Safety
@@ -334,8 +380,12 @@ export default function ClassesPage() {
   async function handleOpenPromoteModal(cls: ClassItem) {
     setPromotingClass(cls);
     setPromoteTargetClassId("");
-    setPromoteAcademicYear("2026/2027");
-    setPromoteTerm("Term 1");
+    const current = academicSessions.find((s) => s.isCurrent) || academicSessions[0];
+    if (current) {
+      setPromoteSessionId(current.id);
+      const currentTerm = current.terms.find((t) => t.isCurrent) || current.terms[0];
+      setPromoteTermId(currentTerm ? currentTerm.id : "");
+    }
     setPromoteError("");
     setPromoteStudents([]);
     setPromoteSelectedStudentIds([]);
@@ -389,8 +439,8 @@ export default function ClassesPage() {
       setPromoteError("Please select a target class");
       return;
     }
-    if (!promoteAcademicYear.trim()) {
-      setPromoteError("Target academic year is required");
+    if (!promoteSessionId) {
+      setPromoteError("Target academic session is required");
       return;
     }
     if (promoteSelectedStudentIds.length === 0) {
@@ -415,8 +465,8 @@ export default function ClassesPage() {
           mode: "batch",
           sourceClassId: promotingClass.id,
           targetClassId: promoteTargetClassId,
-          targetAcademicYear: promoteAcademicYear.trim(),
-          targetTerm: promoteTerm.trim() || undefined,
+          targetSessionId: promoteSessionId,
+          targetTermId: promoteTermId || undefined,
           studentIds: promoteSelectedStudentIds,
         }),
       });
@@ -444,8 +494,8 @@ export default function ClassesPage() {
   // Handle Enroll Student into Class
   async function handleEnrollStudent(classId: string) {
     if (!selectedStudentToEnroll) return;
-    if (!enrollAcademicYear.trim()) {
-      setEnrollError("Academic year is required for enrollment");
+    if (!enrollSessionId) {
+      setEnrollError("Academic session is required for enrollment");
       return;
     }
     setEnrolling(true);
@@ -473,7 +523,7 @@ export default function ClassesPage() {
         },
         body: JSON.stringify({
           studentId: selectedStudentToEnroll,
-          academicYear: enrollAcademicYear.trim(),
+          sessionId: enrollSessionId,
         }),
       });
 
@@ -653,20 +703,25 @@ export default function ClassesPage() {
                         placeholder="Select student to enroll..."
                       />
                     </div>
-                    <div className="w-28 shrink-0">
-                      <input
-                        type="text"
-                        value={enrollAcademicYear}
-                        onChange={(e) => setEnrollAcademicYear(e.target.value)}
-                        placeholder="Session (e.g. 2026/2027)"
-                        title="Academic Year / Session for Enrollment"
+                    <div className="w-36 shrink-0">
+                      <select
+                        value={enrollSessionId}
+                        onChange={(e) => setEnrollSessionId(e.target.value)}
+                        title="Academic Session for Enrollment"
                         className="w-full px-2.5 py-2.5 rounded-xl border border-slate-200 text-xs text-slate-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 font-medium"
-                      />
+                      >
+                        <option value="">Select Session...</option>
+                        {academicSessions.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name} {s.isCurrent ? "(Active)" : ""}
+                          </option>
+                        ))}
+                      </select>
                     </div>
 
                     <button
                       onClick={() => handleEnrollStudent(cls.id)}
-                      disabled={!selectedStudentToEnroll || enrolling || !enrollAcademicYear.trim()}
+                      disabled={!selectedStudentToEnroll || enrolling || !enrollSessionId}
                       className="px-3.5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition-colors disabled:opacity-50 flex items-center gap-1.5 cursor-pointer shrink-0"
                     >
                       {enrolling ? "Enrolling..." : "Enroll"}
@@ -1220,29 +1275,45 @@ export default function ClassesPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="block text-xs font-semibold text-slate-700">
-                    Target Academic Year <span className="text-rose-500">*</span>
+                    Target Academic Session <span className="text-rose-500">*</span>
                   </label>
-                  <input
-                    type="text"
-                    value={promoteAcademicYear}
-                    onChange={(e) => setPromoteAcademicYear(e.target.value)}
+                  <select
+                    value={promoteSessionId}
+                    onChange={(e) => {
+                      const newSessionId = e.target.value;
+                      setPromoteSessionId(newSessionId);
+                      const sess = academicSessions.find((s) => s.id === newSessionId);
+                      const curTerm = sess?.terms.find((t) => t.isCurrent) || sess?.terms[0];
+                      setPromoteTermId(curTerm ? curTerm.id : "");
+                    }}
                     required
-                    placeholder="e.g. 2026/2027"
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 bg-white focus:outline-hidden focus:ring-2 focus:ring-purple-600/20 focus:border-purple-600 font-medium"
-                  />
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-purple-600/20 focus:border-purple-600 font-medium"
+                  >
+                    <option value="">Select Academic Session...</option>
+                    {academicSessions.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} {s.isCurrent ? "(Current)" : ""}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="space-y-1">
                   <label className="block text-xs font-semibold text-slate-700">
                     Target Term (Optional)
                   </label>
-                  <input
-                    type="text"
-                    value={promoteTerm}
-                    onChange={(e) => setPromoteTerm(e.target.value)}
-                    placeholder="e.g. Term 1"
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 bg-white focus:outline-hidden focus:ring-2 focus:ring-purple-600/20 focus:border-purple-600 font-medium"
-                  />
+                  <select
+                    value={promoteTermId}
+                    onChange={(e) => setPromoteTermId(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-purple-600/20 focus:border-purple-600 font-medium"
+                  >
+                    <option value="">Select Term (Optional)...</option>
+                    {(academicSessions.find((s) => s.id === promoteSessionId)?.terms || []).map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} {t.isCurrent ? "(Current)" : ""}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -1316,8 +1387,8 @@ export default function ClassesPage() {
                 <p className="font-semibold">Promotion Summary:</p>
                 <p className="mt-0.5 text-purple-700">
                   {promoteSelectedStudentIds.length === promoteStudents.length
-                    ? `All ${promoteStudents.length} active enrollments in ${promotingClass.name} will be ended, and new active enrollments will be created in the selected target class for session ${promoteAcademicYear}.`
-                    : `${promoteSelectedStudentIds.length} of ${promoteStudents.length} selected student(s) in ${promotingClass.name} will be promoted to the target class for session ${promoteAcademicYear}. Unchecked students will remain active in ${promotingClass.name}.`}
+                    ? `All ${promoteStudents.length} active enrollments in ${promotingClass.name} will be ended, and new active enrollments will be created in the selected target class for session ${academicSessions.find((s) => s.id === promoteSessionId)?.name || "selected session"}.`
+                    : `${promoteSelectedStudentIds.length} of ${promoteStudents.length} selected student(s) in ${promotingClass.name} will be promoted to the target class for session ${academicSessions.find((s) => s.id === promoteSessionId)?.name || "selected session"}. Unchecked students will remain active in ${promotingClass.name}.`}
                 </p>
               </div>
 

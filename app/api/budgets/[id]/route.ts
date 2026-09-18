@@ -22,6 +22,10 @@ export const GET = withAuth(
           id,
           schoolId,
         },
+        include: {
+          session: true,
+          term: true,
+        },
       });
 
       if (!budget) {
@@ -33,8 +37,12 @@ export const GET = withAuth(
           data: {
             id: budget.id,
             schoolId: budget.schoolId,
-            academicYear: budget.academicYear,
-            term: budget.term,
+            sessionId: budget.sessionId,
+            termId: budget.termId,
+            academicYear: budget.session.name,
+            term: budget.term.name,
+            session: budget.session,
+            termObj: budget.term,
             amount: new Prisma.Decimal(budget.amount).toFixed(2),
             createdAt: budget.createdAt.toISOString(),
             updatedAt: budget.updatedAt.toISOString(),
@@ -69,6 +77,10 @@ export const PATCH = withAuth(
           id,
           schoolId,
         },
+        include: {
+          session: true,
+          term: true,
+        },
       });
 
       if (!existing) {
@@ -92,8 +104,12 @@ export const PATCH = withAuth(
             data: {
               id: existing.id,
               schoolId: existing.schoolId,
-              academicYear: existing.academicYear,
-              term: existing.term,
+              sessionId: existing.sessionId,
+              termId: existing.termId,
+              academicYear: existing.session.name,
+              term: existing.term.name,
+              session: existing.session,
+              termObj: existing.term,
               amount: new Prisma.Decimal(existing.amount).toFixed(2),
               createdAt: existing.createdAt.toISOString(),
               updatedAt: existing.updatedAt.toISOString(),
@@ -103,13 +119,17 @@ export const PATCH = withAuth(
         );
       }
 
-      // Atomic update of Budget + append BudgetAuditLog in a single transaction
+      // Atomic update of Budget + append BudgetAuditLog with snapshots in a single transaction
       const [updatedBudget] = await prisma.$transaction(
         async (tx) => {
           const updated = await tx.budget.update({
             where: { id: existing.id },
             data: {
               amount: newAmountDecimal,
+            },
+            include: {
+              session: true,
+              term: true,
             },
           });
 
@@ -119,6 +139,8 @@ export const PATCH = withAuth(
               changedBy: req.user.userId,
               previousAmount: existing.amount,
               newAmount: newAmountDecimal,
+              academicSessionName: existing.session.name,
+              termName: existing.term.name,
             },
           });
 
@@ -135,8 +157,12 @@ export const PATCH = withAuth(
           data: {
             id: updatedBudget.id,
             schoolId: updatedBudget.schoolId,
-            academicYear: updatedBudget.academicYear,
-            term: updatedBudget.term,
+            sessionId: updatedBudget.sessionId,
+            termId: updatedBudget.termId,
+            academicYear: updatedBudget.session.name,
+            term: updatedBudget.term.name,
+            session: updatedBudget.session,
+            termObj: updatedBudget.term,
             amount: new Prisma.Decimal(updatedBudget.amount).toFixed(2),
             createdAt: updatedBudget.createdAt.toISOString(),
             updatedAt: updatedBudget.updatedAt.toISOString(),

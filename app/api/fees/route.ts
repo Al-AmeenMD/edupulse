@@ -204,11 +204,26 @@ export const GET = withAuth(
         where.feeStructureId = feeStructureId;
       }
 
-      if ((academicYear && academicYear !== "ALL") || (term && term !== "ALL")) {
+      const rawSession = searchParams.get("sessionId") || searchParams.get("academicYear");
+      const rawTerm = searchParams.get("termId") || searchParams.get("term");
+
+      if ((rawSession && rawSession !== "ALL") || (rawTerm && rawTerm !== "ALL")) {
+        const feeStructFilter: any = {};
+        if (rawSession && rawSession !== "ALL") {
+          feeStructFilter.OR = [
+            { sessionId: rawSession },
+            { session: { name: rawSession } },
+          ];
+        }
+        if (rawTerm && rawTerm !== "ALL") {
+          feeStructFilter.OR = [
+            { termId: rawTerm },
+            { term: { name: rawTerm } },
+          ];
+        }
         where.feeStructure = {
-          ...(where.feeStructure as object || {}),
-          ...(academicYear && academicYear !== "ALL" ? { academicYear } : {}),
-          ...(term && term !== "ALL" ? { term } : {}),
+          ...((where.feeStructure as object) || {}),
+          ...feeStructFilter,
         };
       }
 
@@ -301,8 +316,14 @@ export const GET = withAuth(
                 name: true,
                 type: true,
                 amount: true,
-                academicYear: true,
-                term: true,
+                sessionId: true,
+                termId: true,
+                session: {
+                  select: { id: true, name: true },
+                },
+                term: {
+                  select: { id: true, name: true },
+                },
               },
             },
             payments: {
@@ -322,10 +343,21 @@ export const GET = withAuth(
         prisma.fee.count({ where }),
       ]);
 
+      const formattedFees = fees.map((fee) => ({
+        ...fee,
+        feeStructure: fee.feeStructure
+          ? {
+              ...fee.feeStructure,
+              academicYear: fee.feeStructure.session?.name || "N/A",
+              term: fee.feeStructure.term?.name || null,
+            }
+          : null,
+      }));
+
       if (isExplicitlyPaginated) {
         return NextResponse.json(
           {
-            data: fees,
+            data: formattedFees,
             pagination: {
               page,
               limit,
@@ -339,7 +371,7 @@ export const GET = withAuth(
 
       return NextResponse.json(
         {
-          data: fees,
+          data: formattedFees,
           totalCount,
           isTruncated: totalCount > UNPAGINATED_SAFETY_CEILING,
         },

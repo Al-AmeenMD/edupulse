@@ -62,6 +62,7 @@ export default function TeacherAttendancePage() {
   });
 
   // Attendance Summary Filter State
+  const [academicSessions, setAcademicSessions] = useState<any[]>([]);
   const [filterMode, setFilterMode] = useState<"MONTHLY" | "TERMLY" | "CUSTOM">("MONTHLY");
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7)); // YYYY-MM
   const [selectedYear, setSelectedYear] = useState(() => getCurrentAcademicYear());
@@ -101,6 +102,15 @@ export default function TeacherAttendancePage() {
     }
 
     if (filterMode === "TERMLY") {
+      const sess = academicSessions.find((s) => s.name === selectedYear);
+      const termObj = sess?.terms?.find((t: any) => t.name === selectedTerm);
+      if (termObj?.startDate && termObj?.endDate) {
+        return {
+          startDate: new Date(termObj.startDate).toISOString().split("T")[0],
+          endDate: new Date(termObj.endDate).toISOString().split("T")[0],
+        };
+      }
+
       const startYearNum = parseInt(selectedYear.split("/")[0], 10) || new Date().getFullYear();
       const endYearNum = startYearNum + 1;
 
@@ -126,15 +136,37 @@ export default function TeacherAttendancePage() {
       startDate: customStartDate,
       endDate: customEndDate,
     };
-  }, [filterMode, selectedMonth, selectedYear, selectedTerm, customStartDate, customEndDate]);
+  }, [filterMode, selectedMonth, selectedYear, selectedTerm, customStartDate, customEndDate, academicSessions]);
 
-  // 1. Fetch assigned classes on mount
+  // 1. Fetch assigned classes and academic sessions on mount
   useEffect(() => {
-    async function fetchClasses() {
+    async function fetchData() {
       try {
         setLoadingClasses(true);
         const token = localStorage.getItem("edupulse_token");
         if (!token) return;
+
+        // Fetch academic sessions
+        try {
+          const sessRes = await fetch("/api/academic-sessions", {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (sessRes.ok) {
+            const sessData = await sessRes.json();
+            const sessList = sessData.data || [];
+            setAcademicSessions(sessList);
+            const activeSess = sessList.find((s: any) => s.isCurrent) || sessList[0];
+            if (activeSess) {
+              setSelectedYear(activeSess.name);
+              const activeTerm = (activeSess.terms || []).find((t: any) => t.isCurrent) || activeSess.terms?.[0];
+              if (activeTerm) {
+                setSelectedTerm(activeTerm.name);
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("Error fetching sessions:", e);
+        }
 
         const res = await fetch("/api/classes", {
           headers: { Authorization: `Bearer ${token}` },
@@ -154,7 +186,7 @@ export default function TeacherAttendancePage() {
         setLoadingClasses(false);
       }
     }
-    fetchClasses();
+    fetchData();
   }, []);
 
   // 2. Sync URL when selectedClassId changes
@@ -740,31 +772,49 @@ export default function TeacherAttendancePage() {
               <div className="flex items-center gap-2">
                 <select
                   value={selectedYear}
-                  onChange={(e) => setSelectedYear(e.target.value)}
+                  onChange={(e) => {
+                    const newYear = e.target.value;
+                    setSelectedYear(newYear);
+                    const foundSess = academicSessions.find((s) => s.name === newYear);
+                    if (foundSess && foundSess.terms?.length > 0) {
+                      setSelectedTerm(foundSess.terms[0].name);
+                    }
+                  }}
                   className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
                 >
-                  <option value={selectedYear}>{selectedYear}</option>
-                  {[
-                    "2024/2025",
-                    "2025/2026",
-                    "2026/2027",
-                    "2027/2028",
-                  ]
-                    .filter((y) => y !== selectedYear)
-                    .map((y) => (
-                      <option key={y} value={y}>
-                        {y}
+                  {academicSessions.length > 0 ? (
+                    academicSessions.map((s) => (
+                      <option key={s.id} value={s.name}>
+                        {s.name} {s.isCurrent ? "(Current)" : ""}
                       </option>
-                    ))}
+                    ))
+                  ) : (
+                    <option value={selectedYear}>{selectedYear}</option>
+                  )}
                 </select>
                 <select
                   value={selectedTerm}
                   onChange={(e) => setSelectedTerm(e.target.value)}
                   className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
                 >
-                  <option value="First Term">First Term (Sep - Dec)</option>
-                  <option value="Second Term">Second Term (Jan - Apr)</option>
-                  <option value="Third Term">Third Term (May - Aug)</option>
+                  {(() => {
+                    const currentSess = academicSessions.find((s) => s.name === selectedYear);
+                    const termsList = currentSess?.terms || [];
+                    if (termsList.length > 0) {
+                      return termsList.map((t: any) => (
+                        <option key={t.id} value={t.name}>
+                          {t.name} {t.isCurrent ? "(Active)" : ""}
+                        </option>
+                      ));
+                    }
+                    return (
+                      <>
+                        <option value="First Term">First Term</option>
+                        <option value="Second Term">Second Term</option>
+                        <option value="Third Term">Third Term</option>
+                      </>
+                    );
+                  })()}
                 </select>
               </div>
             )}

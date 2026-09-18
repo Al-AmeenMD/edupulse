@@ -7,7 +7,6 @@ interface ClassItem {
   id: string;
   name: string;
   level?: string | null;
-  academicYear: string;
   _count?: {
     enrollments?: number;
   };
@@ -28,6 +27,7 @@ export default function TeacherDashboardPage() {
   // Map of classId -> boolean indicating if today's attendance was marked
   const [attendanceStatusMap, setAttendanceStatusMap] = useState<Record<string, boolean>>({});
   const [checkingAttendance, setCheckingAttendance] = useState(false);
+  const [currentSessionName, setCurrentSessionName] = useState<string>("Active Session");
 
   useEffect(() => {
     const userJson = localStorage.getItem("edupulse_user");
@@ -47,6 +47,25 @@ export default function TeacherDashboardPage() {
 
       const token = localStorage.getItem("edupulse_token");
       if (!token) return;
+
+      // Fetch active academic session
+      try {
+        const sessRes = await fetch("/api/academic-sessions", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (sessRes.ok) {
+          const sessData = await sessRes.json();
+          const activeSess = (sessData.data || []).find((s: any) => s.isCurrent);
+          if (activeSess) {
+            const activeTerm = (activeSess.terms || []).find((t: any) => t.isCurrent);
+            setCurrentSessionName(
+              activeTerm ? `${activeSess.name} - ${activeTerm.name}` : activeSess.name
+            );
+          }
+        }
+      } catch (e) {
+        console.warn("Could not load current session:", e);
+      }
 
       // 1. Fetch assigned classes
       const res = await fetch("/api/classes", {
@@ -125,7 +144,7 @@ export default function TeacherDashboardPage() {
         <div className="relative z-10 space-y-2">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/20 text-blue-300 text-xs font-semibold border border-blue-400/20">
             <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-            <span>Academic Term 2025/2026</span>
+            <span>{currentSessionName}</span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
             {getGreeting()}, {user?.firstName || "Teacher"}!
@@ -280,7 +299,6 @@ export default function TeacherDashboardPage() {
 
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 font-medium">
                       <span>Level: <strong className="text-slate-800">{cls.level || "—"}</strong></span>
-                      <span>Academic Year: <strong className="text-slate-800 font-mono">{cls.academicYear}</strong></span>
                     </div>
                   </div>
 

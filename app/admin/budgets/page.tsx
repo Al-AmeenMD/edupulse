@@ -21,6 +21,19 @@ type AuditLogItem = {
   newAmount: string;
 };
 
+interface TermItem {
+  id: string;
+  name: string;
+  isCurrent: boolean;
+}
+
+interface AcademicSessionItem {
+  id: string;
+  name: string;
+  isCurrent: boolean;
+  terms: TermItem[];
+}
+
 const STANDARD_TERMS = ["First Term", "Second Term", "Third Term"];
 const STANDARD_YEARS = ["2025/2026", "2026/2027", "2024/2025"];
 
@@ -58,7 +71,10 @@ export default function BudgetsPage() {
   const [submitting, setSubmitting] = useState<boolean>(false);
 
   // Form states
+  const [academicSessions, setAcademicSessions] = useState<AcademicSessionItem[]>([]);
+  const [formSessionId, setFormSessionId] = useState<string>("");
   const [formAcademicYear, setFormAcademicYear] = useState<string>("2025/2026");
+  const [formTermId, setFormTermId] = useState<string>("");
   const [formTerm, setFormTerm] = useState<string>("First Term");
   const [formAmount, setFormAmount] = useState<string>("");
   const [formError, setFormError] = useState<string | null>(null);
@@ -90,13 +106,51 @@ export default function BudgetsPage() {
     }
   };
 
+  const fetchAcademicSessions = async () => {
+    try {
+      const token = localStorage.getItem("edupulse_token");
+      if (!token) return;
+
+      const res = await fetch("/api/academic-sessions", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.ok) {
+        const json = await res.json();
+        const list: AcademicSessionItem[] = json.data || [];
+        setAcademicSessions(list);
+        const current = list.find((s) => s.isCurrent) || list[0];
+        if (current) {
+          setFormSessionId(current.id);
+          setFormAcademicYear(current.name);
+          const currentTerm = current.terms.find((t) => t.isCurrent) || current.terms[0];
+          if (currentTerm) {
+            setFormTermId(currentTerm.id);
+            setFormTerm(currentTerm.name);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load academic sessions:", err);
+    }
+  };
+
   useEffect(() => {
     fetchBudgets();
+    fetchAcademicSessions();
   }, []);
 
   const openCreateModal = () => {
-    setFormAcademicYear("2025/2026");
-    setFormTerm("First Term");
+    const current = academicSessions.find((s) => s.isCurrent) || academicSessions[0];
+    if (current) {
+      setFormSessionId(current.id);
+      setFormAcademicYear(current.name);
+      const currentTerm = current.terms.find((t) => t.isCurrent) || current.terms[0];
+      if (currentTerm) {
+        setFormTermId(currentTerm.id);
+        setFormTerm(currentTerm.name);
+      }
+    }
     setFormAmount("");
     setFormError(null);
     setIsCreateModalOpen(true);
@@ -158,7 +212,9 @@ export default function BudgetsPage() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
+          sessionId: formSessionId || undefined,
           academicYear: formAcademicYear.trim(),
+          termId: formTermId || undefined,
           term: formTerm.trim(),
           amount: numericAmount,
         }),
@@ -408,33 +464,62 @@ export default function BudgetsPage() {
                 </div>
               )}
 
-              {/* Academic Year */}
+              {/* Academic Session */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                  Academic Year
+                  Academic Session *
                 </label>
-                <input
-                  type="text"
-                  placeholder="e.g. 2025/2026"
-                  value={formAcademicYear}
-                  onChange={(e) => setFormAcademicYear(e.target.value)}
+                <select
+                  required
+                  value={formSessionId}
+                  onChange={(e) => {
+                    const selId = e.target.value;
+                    setFormSessionId(selId);
+                    const sess = academicSessions.find((s) => s.id === selId);
+                    if (sess) {
+                      setFormAcademicYear(sess.name);
+                      const curTerm = sess.terms.find((t) => t.isCurrent) || sess.terms[0];
+                      if (curTerm) {
+                        setFormTermId(curTerm.id);
+                        setFormTerm(curTerm.name);
+                      } else {
+                        setFormTermId("");
+                        setFormTerm("");
+                      }
+                    }
+                  }}
                   className="w-full px-3 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 transition-colors font-medium"
-                />
+                >
+                  <option value="">Select Academic Session...</option>
+                  {academicSessions.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} {s.isCurrent ? "(Current)" : ""}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* Term Select */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                  Term
+                  Term *
                 </label>
                 <select
-                  value={formTerm}
-                  onChange={(e) => setFormTerm(e.target.value)}
+                  required
+                  value={formTermId}
+                  onChange={(e) => {
+                    const selTermId = e.target.value;
+                    setFormTermId(selTermId);
+                    const sess = academicSessions.find((s) => s.id === formSessionId);
+                    const t = sess?.terms.find((term) => term.id === selTermId);
+                    if (t) setFormTerm(t.name);
+                  }}
                   className="w-full px-3 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 transition-colors"
                 >
-                  {STANDARD_TERMS.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
+                  <option value="">Select Term...</option>
+                  {(academicSessions.find((s) => s.id === formSessionId)?.terms || []).map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name} {t.isCurrent ? "(Current)" : ""}
                     </option>
                   ))}
                 </select>

@@ -63,8 +63,14 @@ export const GET = withAuth(
               name: true,
               type: true,
               amount: true,
-              academicYear: true,
-              term: true,
+              sessionId: true,
+              termId: true,
+              session: {
+                select: { id: true, name: true },
+              },
+              term: {
+                select: { id: true, name: true },
+              },
             },
           },
           payments: {
@@ -81,7 +87,18 @@ export const GET = withAuth(
         );
       }
 
-      return NextResponse.json({ data: fee }, { status: 200 });
+      const formattedFee = {
+        ...fee,
+        feeStructure: fee.feeStructure
+          ? {
+              ...fee.feeStructure,
+              academicYear: fee.feeStructure.session?.name || "N/A",
+              term: fee.feeStructure.term?.name || null,
+            }
+          : null,
+      };
+
+      return NextResponse.json({ data: formattedFee }, { status: 200 });
     } catch {
       return NextResponse.json(
         { error: "Internal server error" },
@@ -225,8 +242,10 @@ export const PATCH = withAuth(
               name: true,
               type: true,
               amount: true,
-              academicYear: true,
-              term: true,
+              sessionId: true,
+              termId: true,
+              session: { select: { id: true, name: true } },
+              term: { select: { id: true, name: true } },
             },
           },
           payments: {
@@ -236,7 +255,16 @@ export const PATCH = withAuth(
         },
       });
 
-      return NextResponse.json({ data: updatedFee }, { status: 200 });
+      const serializedFee = {
+        ...updatedFee,
+        feeStructure: {
+          ...updatedFee.feeStructure,
+          academicYear: updatedFee.feeStructure.session?.name || "N/A",
+          term: updatedFee.feeStructure.term?.name || null,
+        },
+      };
+
+      return NextResponse.json({ data: serializedFee }, { status: 200 });
     } catch {
       return NextResponse.json(
         { error: "Internal server error" },

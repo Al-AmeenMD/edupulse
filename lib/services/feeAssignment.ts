@@ -15,8 +15,10 @@ export interface SingleStructureAssignmentResult {
   feeStructureName: string;
   feeStructureType: string;
   amount: Prisma.Decimal;
-  academicYear: string;
-  term?: string | null;
+  sessionId: string;
+  sessionName?: string;
+  termId?: string | null;
+  termName?: string | null;
   assignedCount: number;
   skippedCount: number;
   totalEligible: number;
@@ -172,8 +174,10 @@ export async function assignSingleStructureCore(
       name: true,
       type: true,
       amount: true,
-      academicYear: true,
-      term: true,
+      sessionId: true,
+      termId: true,
+      session: { select: { name: true } },
+      term: { select: { name: true } },
       dueDate: true,
     },
   });
@@ -238,8 +242,10 @@ export async function assignSingleStructureCore(
             id: true,
             name: true,
             type: true,
-            academicYear: true,
-            term: true,
+            sessionId: true,
+            termId: true,
+            session: { select: { name: true } },
+            term: { select: { name: true } },
           },
         },
       },
@@ -251,8 +257,10 @@ export async function assignSingleStructureCore(
     feeStructureName: feeStructure.name,
     feeStructureType: feeStructure.type,
     amount: feeStructure.amount,
-    academicYear: feeStructure.academicYear,
-    term: feeStructure.term,
+    sessionId: feeStructure.sessionId,
+    sessionName: feeStructure.session?.name,
+    termId: feeStructure.termId,
+    termName: feeStructure.term?.name,
     assignedCount: createdFees.length,
     skippedCount: alreadyAssignedSet.size,
     totalEligible: eligibleStudentIds.length,

@@ -198,8 +198,8 @@ export async function recalculateFeeState(
           id: true,
           name: true,
           type: true,
-          academicYear: true,
-          term: true,
+          session: { select: { name: true } },
+          term: { select: { name: true } },
         },
       },
     },
@@ -310,6 +310,14 @@ export async function recordSingleFeePaymentCore(
       amountDue: true,
       amountPaid: true,
       status: true,
+      feeStructure: {
+        select: {
+          sessionId: true,
+          termId: true,
+          session: { select: { name: true } },
+          term: { select: { name: true } },
+        },
+      },
     },
   });
 
@@ -366,6 +374,10 @@ export async function recordSingleFeePaymentCore(
       packagePaymentId: packagePaymentId || null,
       classId: snapshotClassId,
       className: snapshotClassName,
+      sessionId: fee.feeStructure?.sessionId || null,
+      termId: fee.feeStructure?.termId || null,
+      academicSessionName: fee.feeStructure?.session?.name || null,
+      termName: fee.feeStructure?.term?.name || null,
       receiptNumber,
       amount: paymentAmount,
       method: validMethod,
@@ -421,6 +433,8 @@ export async function recordPackagePayment(
   const pkg = await prisma.feePackage.findFirst({
     where: { id: packageId, schoolId },
     include: {
+      session: { select: { name: true } },
+      term: { select: { name: true } },
       items: {
         include: {
           feeStructure: true,
@@ -620,6 +634,10 @@ export async function recordPackagePayment(
         studentId,
         classId: snapshotClassId,
         className: snapshotClassName,
+        sessionId: pkg.sessionId,
+        termId: pkg.termId,
+        academicSessionName: pkg.session?.name || null,
+        termName: pkg.term?.name || null,
         receiptNumber: pkgReceiptNumber,
         amount: totalPaymentAmount,
         method: validMethod,

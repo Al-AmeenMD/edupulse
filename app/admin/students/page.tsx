@@ -101,7 +101,8 @@ export default function StudentsPage() {
   // Bulk CSV Import Modal State
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
-  const [importAcademicYear, setImportAcademicYear] = useState("2026/2027");
+  const [academicSessions, setAcademicSessions] = useState<{ id: string; name: string; isCurrent: boolean }[]>([]);
+  const [importAcademicYear, setImportAcademicYear] = useState("");
   const [importSubmitting, setImportSubmitting] = useState(false);
   const [importStep, setImportStep] = useState<"select" | "preview" | "complete">("select");
   const [importModalError, setImportModalError] = useState("");
@@ -112,27 +113,38 @@ export default function StudentsPage() {
     errors: { rowNumber: number; field?: string; message: string; rawRow?: Record<string, string> }[];
   } | null>(null);
 
-  // Fetch Classes for Filter Dropdown
-  async function fetchClasses() {
+  // Fetch Classes and Academic Sessions for Filters and Modals
+  async function fetchClassesAndSessions() {
     try {
       const token = localStorage.getItem("edupulse_token");
       if (!token) return;
 
-      const res = await fetch("/api/classes", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const [classRes, sessRes] = await Promise.all([
+        fetch("/api/classes", { headers: { Authorization: `Bearer ${token}` } }),
+        fetch("/api/academic-sessions", { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
 
-      if (res.ok) {
-        const data = await res.json();
+      if (classRes.ok) {
+        const data = await classRes.json();
         setClasses(data.data || []);
       }
+
+      if (sessRes.ok) {
+        const data = await sessRes.json();
+        const list = data.data || [];
+        setAcademicSessions(list);
+        const active = list.find((s: any) => s.isCurrent) || list[0];
+        if (active) {
+          setImportAcademicYear(active.name);
+        }
+      }
     } catch (err: any) {
-      console.error("Failed to fetch classes for filter:", err);
+      console.error("Failed to fetch classes or sessions:", err);
     }
   }
 
   useEffect(() => {
-    fetchClasses();
+    fetchClassesAndSessions();
   }, []);
 
   // Fetch Students with AbortController for race condition safety
@@ -1514,21 +1526,36 @@ export default function StudentsPage() {
                     </ul>
                   </div>
 
-                  {/* Target Academic Year Input */}
+                  {/* Target Academic Year Dropdown */}
                   <div className="space-y-1.5">
                     <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                      Target Academic Year / Session <span className="text-rose-500">*</span>
+                      Target Academic Session <span className="text-rose-500">*</span>
                     </label>
-                    <input
-                      type="text"
-                      value={importAcademicYear}
-                      onChange={(e) => setImportAcademicYear(e.target.value)}
-                      placeholder="e.g. 2026/2027"
-                      required
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 font-medium"
-                    />
+                    {academicSessions.length > 0 ? (
+                      <select
+                        value={importAcademicYear}
+                        onChange={(e) => setImportAcademicYear(e.target.value)}
+                        required
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 font-medium"
+                      >
+                        {academicSessions.map((sess) => (
+                          <option key={sess.id} value={sess.name}>
+                            {sess.name} {sess.isCurrent ? "(Current Active Session)" : ""}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={importAcademicYear}
+                        onChange={(e) => setImportAcademicYear(e.target.value)}
+                        placeholder="e.g. 2026/2027"
+                        required
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 font-medium"
+                      />
+                    )}
                     <p className="text-[11px] text-slate-500">
-                      Students in this CSV will be enrolled into their class under this academic year (unless overridden by a column in the CSV).
+                      Students in this CSV will be enrolled into their class under this academic session.
                     </p>
                   </div>
 

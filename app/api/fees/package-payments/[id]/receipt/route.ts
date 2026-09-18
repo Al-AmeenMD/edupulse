@@ -46,6 +46,8 @@ export const GET = withAuth(
           school: true,
           package: {
             include: {
+              session: true,
+              term: true,
               items: {
                 include: { feeStructure: true },
               },
@@ -264,8 +266,12 @@ export const GET = withAuth(
       });
 
       // Row 1 Metadata
+      const sessionName = packagePayment.academicSessionName || packagePayment.package?.session?.name || "N/A";
+      const termName = packagePayment.termName || packagePayment.package?.term?.name || "N/A";
+      const academicPeriod = `${sessionName} | ${termName}`;
+
       page.drawText("Academic Term:", { x: 55, y: y - 12, size: 9, font: fontRegular, color: colorMuted });
-      page.drawText(`${packagePayment.package?.academicYear || "N/A"} | ${packagePayment.package?.term || "N/A"}`, {
+      page.drawText(academicPeriod, {
         x: 145,
         y: y - 12,
         size: 9,

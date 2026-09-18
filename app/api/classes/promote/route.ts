@@ -1,6 +1,7 @@
 import { Role } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/middleware/withAuth";
+import { prisma } from "@/lib/prisma";
 import {
   promoteStudent,
   promoteClassBatch,
@@ -24,14 +25,16 @@ export const POST = withAuth(
         studentId?: string;
         sourceClassId?: string;
         targetClassId?: string;
+        targetSessionId?: string;
         targetAcademicYear?: string;
+        targetTermId?: string;
         targetTerm?: string;
         studentIds?: string[];
       };
 
       const targetClassId = body.targetClassId?.trim();
-      const targetAcademicYear = body.targetAcademicYear?.trim();
-      const targetTerm = body.targetTerm?.trim() || null;
+      let targetSessionId = body.targetSessionId?.trim() || body.targetAcademicYear?.trim();
+      let targetTermId = body.targetTermId?.trim() || body.targetTerm?.trim() || null;
 
       if (!targetClassId) {
         return NextResponse.json(
@@ -40,11 +43,40 @@ export const POST = withAuth(
         );
       }
 
-      if (!targetAcademicYear) {
+      if (!targetSessionId) {
         return NextResponse.json(
-          { error: "Target academic year is required" },
+          { error: "Target academic session is required" },
           { status: 400 }
         );
+      }
+
+      // Check if targetSessionId is an ID or a name
+      const session = await prisma.academicSession.findFirst({
+        where: {
+          schoolId,
+          OR: [{ id: targetSessionId }, { name: targetSessionId }],
+        },
+        include: { terms: true },
+      });
+
+      if (!session) {
+        return NextResponse.json(
+          { error: "Target academic session not found in this school" },
+          { status: 404 }
+        );
+      }
+      targetSessionId = session.id;
+
+      if (targetTermId) {
+        const foundTerm = session.terms.find(
+          (t) =>
+            t.id === targetTermId ||
+            t.name.toLowerCase() === targetTermId?.toLowerCase() ||
+            (targetTermId === "1" && t.name.includes("First")) ||
+            (targetTermId === "2" && t.name.includes("Second")) ||
+            (targetTermId === "3" && t.name.includes("Third"))
+        );
+        targetTermId = foundTerm ? foundTerm.id : null;
       }
 
       // Single student promotion
@@ -61,8 +93,8 @@ export const POST = withAuth(
           schoolId,
           studentId,
           targetClassId,
-          targetAcademicYear,
-          targetTerm,
+          targetSessionId,
+          targetTermId,
         });
 
         return NextResponse.json(
@@ -87,8 +119,8 @@ export const POST = withAuth(
         schoolId,
         sourceClassId,
         targetClassId,
-        targetAcademicYear,
-        targetTerm,
+        targetSessionId,
+        targetTermId,
         studentIds: body.studentIds,
       });
 

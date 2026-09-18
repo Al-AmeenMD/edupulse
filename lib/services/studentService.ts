@@ -85,8 +85,8 @@ export interface CreateStudentInput {
   guardianPhone?: string | null;
   guardianEmail?: string | null;
   classId?: string | null;
-  academicYear?: string | null;
-  term?: string | null;
+  sessionId?: string | null;
+  termId?: string | null;
   validateOnly?: boolean;
 }
 
@@ -204,14 +204,14 @@ export async function createStudentCore(
     throw new StudentValidationError(genderResult.error, 400, "gender");
   }
 
-  // If classId is specified, validate that class exists in this school and academicYear is provided
+  // If classId is specified, validate that class and academicSession exist in this school
   if (input.classId) {
-    const academicYear = input.academicYear?.trim();
-    if (!academicYear) {
+    const sessionId = input.sessionId?.trim();
+    if (!sessionId) {
       throw new StudentValidationError(
-        "academicYear is required when enrolling a student in a class",
+        "sessionId is required when enrolling a student in a class",
         400,
-        "academicYear"
+        "sessionId"
       );
     }
 
@@ -226,6 +226,33 @@ export async function createStudentCore(
         404,
         "classId"
       );
+    }
+
+    const sessionRecord = await db.academicSession.findUnique({
+      where: { id: sessionId },
+      select: { schoolId: true },
+    });
+
+    if (!sessionRecord || sessionRecord.schoolId !== schoolId) {
+      throw new StudentValidationError(
+        "Academic session not found in this school",
+        404,
+        "sessionId"
+      );
+    }
+
+    if (input.termId) {
+      const termRecord = await db.term.findUnique({
+        where: { id: input.termId },
+        select: { sessionId: true },
+      });
+      if (!termRecord || termRecord.sessionId !== sessionId) {
+        throw new StudentValidationError(
+          "Term not found under this academic session",
+          400,
+          "termId"
+        );
+      }
     }
   }
 
@@ -256,8 +283,8 @@ export async function createStudentCore(
           id: "dry-run-enrollment-id",
           studentId: "dry-run-preview-id",
           classId: input.classId,
-          academicYear: input.academicYear!.trim(),
-          term: input.term?.trim() || null,
+          sessionId: input.sessionId!.trim(),
+          termId: input.termId?.trim() || null,
           enrolledAt: new Date(),
           endedAt: null,
         }
@@ -294,8 +321,8 @@ export async function createStudentCore(
       data: {
         studentId: student.id,
         classId: input.classId,
-        academicYear: input.academicYear!.trim(),
-        term: input.term?.trim() || null,
+        sessionId: input.sessionId!.trim(),
+        termId: input.termId?.trim() || null,
         endedAt: null,
       },
     });

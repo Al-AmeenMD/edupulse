@@ -23,6 +23,8 @@ export const GET = withAuth(
           schoolId,
         },
         include: {
+          session: true,
+          term: true,
           auditLogs: {
             orderBy: { changedAt: "asc" },
           },
@@ -72,8 +74,10 @@ export const GET = withAuth(
           data: {
             budget: {
               id: budget.id,
-              academicYear: budget.academicYear,
-              term: budget.term,
+              sessionId: budget.sessionId,
+              academicYear: budget.session?.name || "N/A",
+              termId: budget.termId,
+              term: budget.term?.name || "N/A",
               amount: new Prisma.Decimal(budget.amount).toFixed(2),
             },
             history: formattedHistory,

@@ -29,9 +29,16 @@ export const GET = withAuth(
       const pkg = await prisma.feePackage.findFirst({
         where: { id, schoolId },
         include: {
+          session: true,
+          term: true,
           items: {
             include: {
-              feeStructure: true,
+              feeStructure: {
+                include: {
+                  session: true,
+                  term: true,
+                },
+              },
             },
           },
         },
@@ -57,8 +64,12 @@ export const GET = withAuth(
             id: pkg.id,
             name: pkg.name,
             description: pkg.description,
-            academicYear: pkg.academicYear,
-            term: pkg.term,
+            sessionId: pkg.sessionId,
+            termId: pkg.termId,
+            academicYear: pkg.session?.name || "N/A",
+            term: pkg.term?.name || null,
+            session: pkg.session,
+            termObj: pkg.term,
             totalAmount: total.toFixed(2),
             structuresCount: pkg.items.length,
             createdAt: pkg.createdAt,
@@ -70,6 +81,8 @@ export const GET = withAuth(
                 ? {
                     ...it.feeStructure,
                     amount: new Prisma.Decimal(it.feeStructure.amount).toFixed(2),
+                    academicYear: it.feeStructure.session?.name || "N/A",
+                    term: it.feeStructure.term?.name || null,
                   }
                 : null,
             })),
@@ -107,7 +120,7 @@ export const PATCH = withAuth(
 
       const existingPackage = await prisma.feePackage.findFirst({
         where: { id, schoolId },
-        include: { items: true },
+        include: { session: true, term: true, items: true },
       });
 
       if (!existingPackage) {
@@ -120,22 +133,57 @@ export const PATCH = withAuth(
       const body = (await req.json()) as {
         name?: string;
         description?: string;
+        sessionId?: string;
         academicYear?: string;
+        termId?: string;
         term?: string;
         feeStructureIds?: string[];
       };
 
       const updatedName = body.name !== undefined ? body.name.trim() : existingPackage.name;
       const updatedDescription = body.description !== undefined ? body.description.trim() || null : existingPackage.description;
-      const updatedAcademicYear = body.academicYear !== undefined ? body.academicYear.trim() : existingPackage.academicYear;
-      const updatedTerm = body.term !== undefined ? body.term.trim() || null : existingPackage.term;
+      const rawSession = body.sessionId !== undefined ? body.sessionId.trim() : (body.academicYear !== undefined ? body.academicYear.trim() : undefined);
+      const rawTerm = body.termId !== undefined ? body.termId.trim() || null : (body.term !== undefined ? body.term.trim() || null : undefined);
 
       if (!updatedName) {
         return NextResponse.json({ error: "Package name cannot be empty" }, { status: 400 });
       }
 
-      if (!updatedAcademicYear) {
-        return NextResponse.json({ error: "Academic year cannot be empty" }, { status: 400 });
+      let updatedSessionId = existingPackage.sessionId;
+      if (rawSession !== undefined) {
+        const session = await prisma.academicSession.findFirst({
+          where: {
+            schoolId,
+            OR: [{ id: rawSession }, { name: rawSession }],
+          },
+          include: { terms: true },
+        });
+
+        if (!session) {
+          return NextResponse.json({ error: "Academic session not found" }, { status: 404 });
+        }
+        updatedSessionId = session.id;
+      }
+
+      let updatedTermId = existingPackage.termId;
+      if (rawTerm !== undefined) {
+        if (rawTerm === null) {
+          updatedTermId = null;
+        } else {
+          const session = await prisma.academicSession.findUnique({
+            where: { id: updatedSessionId },
+            include: { terms: true },
+          });
+          const foundTerm = session?.terms.find(
+            (t) =>
+              t.id === rawTerm ||
+              t.name.toLowerCase() === rawTerm.toLowerCase() ||
+              (rawTerm === "1" && t.name.includes("First")) ||
+              (rawTerm === "2" && t.name.includes("Second")) ||
+              (rawTerm === "3" && t.name.includes("Third"))
+          );
+          updatedTermId = foundTerm ? foundTerm.id : null;
+        }
       }
 
       // If feeStructureIds provided, validate them
@@ -161,10 +209,8 @@ export const PATCH = withAuth(
             id: { in: structureIdsToSet },
             schoolId,
           },
-          select: {
-            id: true,
-            name: true,
-            academicYear: true,
+          include: {
+            session: true,
             term: true,
           },
         });
@@ -177,23 +223,23 @@ export const PATCH = withAuth(
         }
 
         // Verify session compatibility
-        const incompatibleYear = validStructures.find((s) => s.academicYear !== updatedAcademicYear);
-        if (incompatibleYear) {
+        const incompatibleSession = validStructures.find((s) => s.sessionId !== updatedSessionId);
+        if (incompatibleSession) {
           return NextResponse.json(
             {
-              error: `Fee structure '${incompatibleYear.name}' belongs to session '${incompatibleYear.academicYear}', which is incompatible with package session '${updatedAcademicYear}'`,
+              error: `Fee structure '${incompatibleSession.name}' belongs to session '${incompatibleSession.session.name}', which is incompatible with package session`,
             },
             { status: 400 }
           );
         }
 
         // Verify term compatibility if term specified
-        if (updatedTerm && updatedTerm !== "ALL") {
-          const incompatibleTerm = validStructures.find((s) => s.term && s.term !== updatedTerm);
+        if (updatedTermId) {
+          const incompatibleTerm = validStructures.find((s) => s.termId && s.termId !== updatedTermId);
           if (incompatibleTerm) {
             return NextResponse.json(
               {
-                error: `Fee structure '${incompatibleTerm.name}' belongs to '${incompatibleTerm.term}', which is incompatible with package term '${updatedTerm}'`,
+                error: `Fee structure '${incompatibleTerm.name}' belongs to a different term, which is incompatible with package term`,
               },
               { status: 400 }
             );
@@ -201,18 +247,18 @@ export const PATCH = withAuth(
         }
       }
 
-      // Check name uniqueness if name/year/term changed
+      // Check name uniqueness if name/session/term changed
       if (
         updatedName !== existingPackage.name ||
-        updatedAcademicYear !== existingPackage.academicYear ||
-        updatedTerm !== existingPackage.term
+        updatedSessionId !== existingPackage.sessionId ||
+        updatedTermId !== existingPackage.termId
       ) {
         const conflict = await prisma.feePackage.findFirst({
           where: {
             schoolId,
             name: { equals: updatedName, mode: "insensitive" },
-            academicYear: updatedAcademicYear,
-            term: updatedTerm,
+            sessionId: updatedSessionId,
+            termId: updatedTermId,
             id: { not: id },
           },
         });
@@ -228,13 +274,13 @@ export const PATCH = withAuth(
       // Execute update in transaction
       const updatedPkg = await prisma.$transaction(async (tx) => {
         // Update package header
-        const pkg = await tx.feePackage.update({
+        await tx.feePackage.update({
           where: { id },
           data: {
             name: updatedName,
             description: updatedDescription,
-            academicYear: updatedAcademicYear,
-            term: updatedTerm,
+            sessionId: updatedSessionId,
+            termId: updatedTermId,
           },
         });
 
@@ -255,9 +301,16 @@ export const PATCH = withAuth(
         return tx.feePackage.findUnique({
           where: { id },
           include: {
+            session: true,
+            term: true,
             items: {
               include: {
-                feeStructure: true,
+                feeStructure: {
+                  include: {
+                    session: true,
+                    term: true,
+                  },
+                },
               },
             },
           },
@@ -281,8 +334,10 @@ export const PATCH = withAuth(
             id: updatedPkg.id,
             name: updatedPkg.name,
             description: updatedPkg.description,
-            academicYear: updatedPkg.academicYear,
-            term: updatedPkg.term,
+            sessionId: updatedPkg.sessionId,
+            termId: updatedPkg.termId,
+            academicYear: updatedPkg.session.name,
+            term: updatedPkg.term?.name || null,
             totalAmount: total.toFixed(2),
             structuresCount: updatedPkg.items.length,
             createdAt: updatedPkg.createdAt,

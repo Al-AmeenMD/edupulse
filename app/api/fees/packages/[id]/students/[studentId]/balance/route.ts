@@ -36,6 +36,8 @@ export const GET = withAuth(
       const pkg = await prisma.feePackage.findFirst({
         where: { id: packageId, schoolId },
         include: {
+          session: true,
+          term: true,
           items: {
             include: {
               feeStructure: true,
@@ -170,8 +172,10 @@ export const GET = withAuth(
             package: {
               id: pkg.id,
               name: pkg.name,
-              academicYear: pkg.academicYear,
-              term: pkg.term,
+              sessionId: pkg.sessionId,
+              academicYear: pkg.session.name,
+              termId: pkg.termId,
+              term: pkg.term?.name || null,
               totalAmount: new Prisma.Decimal(
                 pkg.items.reduce((s, it) => s + Number(it.feeStructure?.amount || 0), 0)
               ).toFixed(2),

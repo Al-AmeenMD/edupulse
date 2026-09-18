@@ -7,7 +7,6 @@ interface ClassItem {
   id: string;
   name: string;
   level?: string | null;
-  academicYear: string;
   _count?: {
     enrollments?: number;
   };
@@ -96,7 +95,6 @@ export default function MyClassesPage() {
                 <tr className="bg-slate-50/80 border-b border-slate-100 text-xs font-semibold text-slate-500 uppercase tracking-wider">
                   <th className="px-6 py-3.5">Class Name</th>
                   <th className="px-6 py-3.5">Level</th>
-                  <th className="px-6 py-3.5">Academic Year</th>
                   <th className="px-6 py-3.5 text-center">Enrolled Students</th>
                   <th className="px-6 py-3.5 text-right">Action</th>
                 </tr>
@@ -109,9 +107,6 @@ export default function MyClassesPage() {
                     </td>
                     <td className="px-6 py-4 text-xs text-slate-600 font-medium">
                       {cls.level || "—"}
-                    </td>
-                    <td className="px-6 py-4 text-xs text-slate-600 font-mono font-medium">
-                      {cls.academicYear}
                     </td>
                     <td className="px-6 py-4 text-center">
                       <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-800">

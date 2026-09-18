@@ -213,8 +213,10 @@ export async function getUnifiedLedger(
     ];
 
     budgetAuditWhere.OR = [
-      { budget: { academicYear: { contains: search, mode: "insensitive" } } },
-      { budget: { term: { contains: search, mode: "insensitive" } } },
+      { budget: { session: { name: { contains: search, mode: "insensitive" } } } },
+      { budget: { term: { name: { contains: search, mode: "insensitive" } } } },
+      { academicSessionName: { contains: search, mode: "insensitive" } },
+      { termName: { contains: search, mode: "insensitive" } },
     ];
   }
 
@@ -288,7 +290,7 @@ export async function getUnifiedLedger(
           fee: {
             include: {
               student: { select: { id: true, firstName: true, lastName: true, studentId: true } },
-              feeStructure: { select: { id: true, name: true, type: true, academicYear: true, term: true } },
+              feeStructure: { select: { id: true, name: true, type: true, session: { select: { name: true } }, term: { select: { name: true } } } },
             },
           },
         },
@@ -299,7 +301,7 @@ export async function getUnifiedLedger(
         take: windowSize,
         include: {
           student: { select: { id: true, firstName: true, lastName: true, studentId: true } },
-          package: { select: { id: true, name: true, academicYear: true, term: true } },
+          package: { select: { id: true, name: true, session: { select: { name: true } }, term: { select: { name: true } } } },
         },
       }),
     ]);
@@ -317,7 +319,7 @@ export async function getUnifiedLedger(
       skip: (page - 1) * limit,
       take: limit,
       include: {
-        budget: { select: { id: true, academicYear: true, term: true } },
+        budget: { select: { id: true, session: { select: { name: true } }, term: { select: { name: true } } } },
       },
     });
   } else {
@@ -333,7 +335,7 @@ export async function getUnifiedLedger(
               fee: {
                 include: {
                   student: { select: { id: true, firstName: true, lastName: true, studentId: true } },
-                  feeStructure: { select: { id: true, name: true, type: true, academicYear: true, term: true } },
+                  feeStructure: { select: { id: true, name: true, type: true, session: { select: { name: true } }, term: { select: { name: true } } } },
                 },
               },
             },
@@ -346,7 +348,7 @@ export async function getUnifiedLedger(
             take: windowSize,
             include: {
               student: { select: { id: true, firstName: true, lastName: true, studentId: true } },
-              package: { select: { id: true, name: true, academicYear: true, term: true } },
+              package: { select: { id: true, name: true, session: { select: { name: true } }, term: { select: { name: true } } } },
             },
           })
         : [],
@@ -363,7 +365,7 @@ export async function getUnifiedLedger(
             orderBy: [{ changedAt: sortOrder }, { id: "desc" }],
             take: windowSize,
             include: {
-              budget: { select: { id: true, academicYear: true, term: true } },
+              budget: { select: { id: true, session: { select: { name: true } }, term: { select: { name: true } } } },
             },
           })
         : [],
@@ -419,8 +421,8 @@ export async function getUnifiedLedger(
       metadata: {
         studentId: student?.id,
         studentName,
-        academicYear: structure?.academicYear,
-        term: structure?.term || undefined,
+        academicYear: p.academicSessionName || structure?.session?.name,
+        term: p.termName || structure?.term?.name || undefined,
       },
     };
   });
@@ -450,8 +452,8 @@ export async function getUnifiedLedger(
         studentName,
         packageId: pkg?.id,
         packageName,
-        academicYear: pkg?.academicYear,
-        term: pkg?.term || undefined,
+        academicYear: p.academicSessionName || pkg?.session?.name,
+        term: p.termName || pkg?.term?.name || undefined,
       },
     };
   });
@@ -482,8 +484,8 @@ export async function getUnifiedLedger(
   const normalizedBudgetAudits: NormalizedLedgerEntry[] = rawBudgetAudits.map((b) => {
     const newAmtDecimal = new Prisma.Decimal(b.newAmount);
     const prevAmtDecimal = b.previousAmount ? new Prisma.Decimal(b.previousAmount) : null;
-    const year = b.budget?.academicYear || "";
-    const term = b.budget?.term || "";
+    const year = b.academicSessionName || b.budget?.session?.name || "";
+    const term = b.termName || b.budget?.term?.name || "";
 
     const description = prevAmtDecimal === null
       ? `Initial budget allocation of ₦${newAmtDecimal.toFixed(2)} for ${year} ${term}`.trim()

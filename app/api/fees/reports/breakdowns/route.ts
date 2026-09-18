@@ -60,8 +60,12 @@ export const GET = withAuth(
             feeStructure: {
               select: {
                 type: true,
-                academicYear: true,
-                term: true,
+                session: {
+                  select: { name: true },
+                },
+                term: {
+                  select: { name: true },
+                },
               },
             },
           },
@@ -74,13 +78,25 @@ export const GET = withAuth(
             id: true,
             amount: true,
             paidAt: true,
+            academicSessionName: true,
+            termName: true,
+            session: {
+              select: { name: true },
+            },
+            term: {
+              select: { name: true },
+            },
             fee: {
               select: {
                 feeStructure: {
                   select: {
                     type: true,
-                    academicYear: true,
-                    term: true,
+                    session: {
+                      select: { name: true },
+                    },
+                    term: {
+                      select: { name: true },
+                    },
                   },
                 },
               },
@@ -178,7 +194,7 @@ export const GET = withAuth(
       const sessionMap = new Map<string, BreakdownAccumulator>();
 
       for (const fee of fees) {
-        const sessionKey = fee.feeStructure?.academicYear?.trim() || "Unspecified";
+        const sessionKey = fee.feeStructure?.session?.name?.trim() || "Unspecified";
         if (!sessionMap.has(sessionKey)) {
           sessionMap.set(sessionKey, {
             totalAssigned: new Prisma.Decimal(0),
@@ -193,7 +209,11 @@ export const GET = withAuth(
       }
 
       for (const pmt of payments) {
-        const sessionKey = pmt.fee?.feeStructure?.academicYear?.trim() || "Unspecified";
+        const sessionKey =
+          pmt.academicSessionName?.trim() ||
+          pmt.session?.name?.trim() ||
+          pmt.fee?.feeStructure?.session?.name?.trim() ||
+          "Unspecified";
         if (!sessionMap.has(sessionKey)) {
           sessionMap.set(sessionKey, {
             totalAssigned: new Prisma.Decimal(0),
@@ -235,7 +255,7 @@ export const GET = withAuth(
       const termMap = new Map<string, BreakdownAccumulator>();
 
       for (const fee of fees) {
-        const termKey = fee.feeStructure?.term?.trim() || "No Term / Full Year";
+        const termKey = fee.feeStructure?.term?.name?.trim() || "No Term / Full Year";
         if (!termMap.has(termKey)) {
           termMap.set(termKey, {
             totalAssigned: new Prisma.Decimal(0),
@@ -250,7 +270,11 @@ export const GET = withAuth(
       }
 
       for (const pmt of payments) {
-        const termKey = pmt.fee?.feeStructure?.term?.trim() || "No Term / Full Year";
+        const termKey =
+          pmt.termName?.trim() ||
+          pmt.term?.name?.trim() ||
+          pmt.fee?.feeStructure?.term?.name?.trim() ||
+          "No Term / Full Year";
         if (!termMap.has(termKey)) {
           termMap.set(termKey, {
             totalAssigned: new Prisma.Decimal(0),

@@ -15,8 +15,8 @@ export interface PromoteStudentInput {
   schoolId: string;
   studentId: string;
   targetClassId: string;
-  targetAcademicYear: string;
-  targetTerm?: string | null;
+  targetSessionId: string;
+  targetTermId?: string | null;
 }
 
 export interface PromoteStudentResult {
@@ -29,8 +29,8 @@ export interface PromoteClassBatchInput {
   schoolId: string;
   sourceClassId: string;
   targetClassId: string;
-  targetAcademicYear: string;
-  targetTerm?: string | null;
+  targetSessionId: string;
+  targetTermId?: string | null;
   studentIds?: string[];
 }
 
@@ -38,11 +38,11 @@ export interface PromoteClassBatchResult {
   promotedCount: number;
   sourceClassId: string;
   targetClassId: string;
-  targetAcademicYear: string;
+  targetSessionId: string;
 }
 
 /**
- * Promotes a single student to a target class for a specified academic year.
+ * Promotes a single student to a target class for a specified academic session.
  * Atomically closes any current active enrollment (endedAt = now) and creates a new active enrollment.
  * Leaves student.admissionLevel untouched (treated as immutable admission intake history).
  */
@@ -50,10 +50,10 @@ export async function promoteStudent(
   input: PromoteStudentInput,
   txClient?: Prisma.TransactionClient
 ): Promise<PromoteStudentResult> {
-  const { schoolId, studentId, targetClassId, targetAcademicYear, targetTerm } = input;
+  const { schoolId, studentId, targetClassId, targetSessionId, targetTermId } = input;
 
-  if (!targetAcademicYear || !targetAcademicYear.trim()) {
-    throw new PromotionError("Target academic year is required for promotion", 400);
+  if (!targetSessionId || !targetSessionId.trim()) {
+    throw new PromotionError("Target academic session is required for promotion", 400);
   }
 
   const execute = async (tx: Prisma.TransactionClient): Promise<PromoteStudentResult> => {
@@ -67,14 +67,33 @@ export async function promoteStudent(
       throw new PromotionError("Student not found or inactive in this school", 404);
     }
 
-    // 2. Verify target class exists and belongs to school
-    const targetClass = await tx.class.findFirst({
-      where: { id: targetClassId, schoolId },
-      select: { id: true, name: true },
-    });
+    // 2. Verify target class and session exist and belong to school
+    const [targetClass, targetSession] = await Promise.all([
+      tx.class.findFirst({
+        where: { id: targetClassId, schoolId },
+        select: { id: true, name: true },
+      }),
+      tx.academicSession.findFirst({
+        where: { id: targetSessionId, schoolId },
+        select: { id: true, name: true },
+      }),
+    ]);
 
     if (!targetClass) {
       throw new PromotionError("Target class not found in this school", 404);
+    }
+    if (!targetSession) {
+      throw new PromotionError("Target academic session not found in this school", 404);
+    }
+
+    if (targetTermId) {
+      const term = await tx.term.findFirst({
+        where: { id: targetTermId, sessionId: targetSessionId },
+        select: { id: true },
+      });
+      if (!term) {
+        throw new PromotionError("Target term not found under this session", 404);
+      }
     }
 
     // 3. Find current active enrollment
@@ -88,10 +107,10 @@ export async function promoteStudent(
     if (
       activeEnrollment &&
       activeEnrollment.classId === targetClassId &&
-      activeEnrollment.academicYear === targetAcademicYear.trim()
+      activeEnrollment.sessionId === targetSessionId
     ) {
       throw new PromotionError(
-        `Student is already actively enrolled in ${targetClass.name} for academic year ${targetAcademicYear}`,
+        `Student is already actively enrolled in ${targetClass.name} for academic session ${targetSession.name}`,
         400
       );
     }
@@ -109,8 +128,8 @@ export async function promoteStudent(
       data: {
         studentId,
         classId: targetClassId,
-        academicYear: targetAcademicYear.trim(),
-        term: targetTerm?.trim() || null,
+        sessionId: targetSessionId,
+        termId: targetTermId || null,
         enrolledAt: new Date(),
         endedAt: null,
       },
@@ -134,17 +153,18 @@ export async function promoteClassBatch(
   input: PromoteClassBatchInput,
   txClient?: Prisma.TransactionClient
 ): Promise<PromoteClassBatchResult> {
-  const { schoolId, sourceClassId, targetClassId, targetAcademicYear, targetTerm, studentIds } = input;
+  const { schoolId, sourceClassId, targetClassId, targetSessionId, targetTermId, studentIds } = input;
 
-  if (!targetAcademicYear || !targetAcademicYear.trim()) {
-    throw new PromotionError("Target academic year is required for promotion", 400);
+  if (!targetSessionId || !targetSessionId.trim()) {
+    throw new PromotionError("Target academic session is required for promotion", 400);
   }
 
   const execute = async (tx: Prisma.TransactionClient): Promise<PromoteClassBatchResult> => {
-    // 1. Validate classes
-    const [sourceClass, targetClass] = await Promise.all([
+    // 1. Validate classes and session
+    const [sourceClass, targetClass, targetSession] = await Promise.all([
       tx.class.findFirst({ where: { id: sourceClassId, schoolId }, select: { id: true, name: true } }),
       tx.class.findFirst({ where: { id: targetClassId, schoolId }, select: { id: true, name: true } }),
+      tx.academicSession.findFirst({ where: { id: targetSessionId, schoolId }, select: { id: true, name: true } }),
     ]);
 
     if (!sourceClass) {
@@ -152,6 +172,19 @@ export async function promoteClassBatch(
     }
     if (!targetClass) {
       throw new PromotionError("Target class not found in this school", 404);
+    }
+    if (!targetSession) {
+      throw new PromotionError("Target academic session not found in this school", 404);
+    }
+
+    if (targetTermId) {
+      const term = await tx.term.findFirst({
+        where: { id: targetTermId, sessionId: targetSessionId },
+        select: { id: true },
+      });
+      if (!term) {
+        throw new PromotionError("Target term not found under this session", 404);
+      }
     }
 
     // 2. Find active enrollments in source class
@@ -174,7 +207,7 @@ export async function promoteClassBatch(
         promotedCount: 0,
         sourceClassId,
         targetClassId,
-        targetAcademicYear,
+        targetSessionId,
       };
     }
 
@@ -192,8 +225,8 @@ export async function promoteClassBatch(
       data: activeEnrollments.map((e) => ({
         studentId: e.studentId,
         classId: targetClassId,
-        academicYear: targetAcademicYear.trim(),
-        term: targetTerm?.trim() || null,
+        sessionId: targetSessionId,
+        termId: targetTermId || null,
         enrolledAt: now,
         endedAt: null,
       })),
@@ -203,7 +236,7 @@ export async function promoteClassBatch(
       promotedCount: activeEnrollments.length,
       sourceClassId,
       targetClassId,
-      targetAcademicYear,
+      targetSessionId,
     };
   };
 

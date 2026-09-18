@@ -31,6 +31,9 @@ export const POST = withAuth(
         guardianName?: string;
         guardianPhone?: string;
         guardianEmail?: string;
+        classId?: string;
+        sessionId?: string;
+        termId?: string;
       };
 
       const { student } = await createStudentCore({
@@ -45,6 +48,9 @@ export const POST = withAuth(
         guardianName: body.guardianName,
         guardianPhone: body.guardianPhone,
         guardianEmail: body.guardianEmail,
+        classId: body.classId,
+        sessionId: body.sessionId,
+        termId: body.termId,
       });
 
       return NextResponse.json({ data: student }, { status: 201 });
@@ -172,6 +178,20 @@ export const GET = withAuth(
                     id: true,
                     name: true,
                     level: true,
+                  },
+                },
+                session: {
+                  select: {
+                    id: true,
+                    name: true,
+                    isCurrent: true,
+                  },
+                },
+                term: {
+                  select: {
+                    id: true,
+                    name: true,
+                    isCurrent: true,
                   },
                 },
               },

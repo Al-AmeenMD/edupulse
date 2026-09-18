@@ -40,7 +40,9 @@ export const POST = withAuth(
         name?: string;
         type?: string;
         amount?: number;
+        sessionId?: string;
         academicYear?: string;
+        termId?: string;
         term?: string;
         dueDate?: string;
       };
@@ -48,14 +50,14 @@ export const POST = withAuth(
       const name = body.name?.trim();
       const type = body.type?.trim();
       const amount = body.amount;
-      const academicYear = body.academicYear?.trim();
-      const term = body.term?.trim() || null;
+      const rawSession = body.sessionId?.trim() || body.academicYear?.trim();
+      const rawTerm = body.termId?.trim() || body.term?.trim() || null;
       const dueDateRaw = body.dueDate?.trim();
 
       // --- Required field validation ---
-      if (!name || !type || amount === undefined || amount === null || !academicYear || !dueDateRaw) {
+      if (!name || !type || amount === undefined || amount === null || !rawSession || !dueDateRaw) {
         return NextResponse.json(
-          { error: "name, type, amount, academicYear, and dueDate are required" },
+          { error: "name, type, amount, sessionId (or academicYear), and dueDate are required" },
           { status: 400 }
         );
       }
@@ -87,20 +89,54 @@ export const POST = withAuth(
         );
       }
 
+      // Resolve academic session
+      const session = await prisma.academicSession.findFirst({
+        where: {
+          schoolId,
+          OR: [{ id: rawSession }, { name: rawSession }],
+        },
+        include: { terms: true },
+      });
+
+      if (!session) {
+        return NextResponse.json(
+          { error: "Academic session not found in this school" },
+          { status: 404 }
+        );
+      }
+
+      let termId: string | null = null;
+      if (rawTerm) {
+        const foundTerm = session.terms.find(
+          (t) =>
+            t.id === rawTerm ||
+            t.name.toLowerCase() === rawTerm.toLowerCase() ||
+            (rawTerm === "1" && t.name.includes("First")) ||
+            (rawTerm === "2" && t.name.includes("Second")) ||
+            (rawTerm === "3" && t.name.includes("Third"))
+        );
+        termId = foundTerm ? foundTerm.id : null;
+      }
+
       const feeStructure = await prisma.feeStructure.create({
         data: {
           schoolId,
           name,
           type: type as FeeType,
           amount,
-          academicYear,
-          term,
+          sessionId: session.id,
+          termId,
           dueDate,
+        },
+        include: {
+          session: true,
+          term: true,
         },
       });
 
       return NextResponse.json({ data: feeStructure }, { status: 201 });
-    } catch {
+    } catch (err: any) {
+      console.error("POST /api/fees/structures error:", err);
       return NextResponse.json(
         { error: "Internal server error" },
         { status: 500 }
@@ -126,29 +162,34 @@ export const GET = withAuth(
       }
 
       const { searchParams } = new URL(req.url);
-      const academicYear = searchParams.get("academicYear");
+      const sessionId = searchParams.get("sessionId") || searchParams.get("academicYear");
+      const termId = searchParams.get("termId") || searchParams.get("term");
       const type = searchParams.get("type");
-      const term = searchParams.get("term");
 
       // Build where clause
       const where: Record<string, unknown> = { schoolId };
 
-      if (academicYear && academicYear !== "ALL") {
-        where.academicYear = academicYear;
+      if (sessionId && sessionId !== "ALL") {
+        where.OR = [
+          { sessionId },
+          { session: { name: sessionId } },
+        ];
       }
 
       if (type && type !== "ALL" && VALID_FEE_TYPES.includes(type)) {
         where.type = type as FeeType;
       }
 
-      if (term && term !== "ALL") {
-        where.term = term;
+      if (termId && termId !== "ALL") {
+        where.termId = termId;
       }
 
       const feeStructures = await prisma.feeStructure.findMany({
         where,
         orderBy: { createdAt: "desc" },
         include: {
+          session: true,
+          term: true,
           _count: {
             select: { fees: true },
           },
@@ -156,7 +197,8 @@ export const GET = withAuth(
       });
 
       return NextResponse.json({ data: feeStructures }, { status: 200 });
-    } catch {
+    } catch (err: any) {
+      console.error("GET /api/fees/structures error:", err);
       return NextResponse.json(
         { error: "Internal server error" },
         { status: 500 }

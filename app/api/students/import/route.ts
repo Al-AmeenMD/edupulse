@@ -45,13 +45,15 @@ export const POST = withAuth(
 
       let csvText = "";
       let dryRun = false;
-      let batchAcademicYear = "";
+      let batchSessionInput = "";
+      let batchTermInput = "";
 
       const { searchParams } = new URL(req.url);
       if (searchParams.get("dryRun") === "true") {
         dryRun = true;
       }
-      batchAcademicYear = searchParams.get("academicYear")?.trim() || "";
+      batchSessionInput = searchParams.get("sessionId")?.trim() || searchParams.get("academicYear")?.trim() || "";
+      batchTermInput = searchParams.get("termId")?.trim() || searchParams.get("term")?.trim() || "";
 
       const contentType = req.headers.get("content-type") || "";
 
@@ -77,9 +79,13 @@ export const POST = withAuth(
         if (formDryRun === "true" || formDryRun === "1") {
           dryRun = true;
         }
-        const formAcademicYear = formData.get("academicYear");
-        if (typeof formAcademicYear === "string" && formAcademicYear.trim()) {
-          batchAcademicYear = formAcademicYear.trim();
+        const formSession = formData.get("sessionId") || formData.get("academicYear");
+        if (typeof formSession === "string" && formSession.trim()) {
+          batchSessionInput = formSession.trim();
+        }
+        const formTerm = formData.get("termId") || formData.get("term");
+        if (typeof formTerm === "string" && formTerm.trim()) {
+          batchTermInput = formTerm.trim();
         }
       } else {
         const rawBody = await req.text();
@@ -103,8 +109,11 @@ export const POST = withAuth(
           if (jsonBody.dryRun !== undefined) {
             dryRun = Boolean(jsonBody.dryRun);
           }
-          if (jsonBody.academicYear) {
-            batchAcademicYear = String(jsonBody.academicYear).trim();
+          if (jsonBody.sessionId || jsonBody.academicYear) {
+            batchSessionInput = String(jsonBody.sessionId || jsonBody.academicYear).trim();
+          }
+          if (jsonBody.termId || jsonBody.term) {
+            batchTermInput = String(jsonBody.termId || jsonBody.term).trim();
           }
         } catch {
           // If not valid JSON, treat raw text as CSV directly
@@ -112,11 +121,35 @@ export const POST = withAuth(
         }
       }
 
-      if (!batchAcademicYear) {
+      const schoolSessions = await prisma.academicSession.findMany({
+        where: { schoolId },
+        include: { terms: true },
+      });
+
+      let defaultSession = batchSessionInput
+        ? schoolSessions.find(
+            (s) => s.id === batchSessionInput || s.name.toLowerCase() === batchSessionInput.toLowerCase()
+          )
+        : schoolSessions.find((s) => s.isCurrent);
+
+      if (!defaultSession) {
         return NextResponse.json(
-          { error: "Target academic year is required for student import" },
+          { error: "Valid target academic session is required for student import. No active session found." },
           { status: 400 }
         );
+      }
+
+      let defaultTermId: string | undefined = undefined;
+      if (batchTermInput) {
+        const foundTerm = defaultSession.terms.find(
+          (t) =>
+            t.id === batchTermInput ||
+            t.name.toLowerCase() === batchTermInput.toLowerCase() ||
+            (batchTermInput === "1" && t.name.includes("First")) ||
+            (batchTermInput === "2" && t.name.includes("Second")) ||
+            (batchTermInput === "3" && t.name.includes("Third"))
+        );
+        defaultTermId = foundTerm?.id;
       }
 
       if (!csvText || !csvText.trim()) {
@@ -253,9 +286,27 @@ export const POST = withAuth(
           seenFileStudentIds.add(idKey);
         }
 
-        const rowAcademicYear =
-          getField(rawRow, "academicYear", "academic_year", "session", "Session", "Academic Year") ||
-          batchAcademicYear;
+        const rowSessionVal =
+          getField(rawRow, "sessionId", "academicYear", "academic_year", "session", "Session", "Academic Year");
+        const resolvedSession = rowSessionVal
+          ? schoolSessions.find(
+              (s) => s.id === rowSessionVal || s.name.toLowerCase() === rowSessionVal.toLowerCase()
+            ) || defaultSession
+          : defaultSession;
+
+        const rowTermVal = getField(rawRow, "termId", "term", "Term");
+        let resolvedTermId = defaultTermId;
+        if (rowTermVal && resolvedSession) {
+          const matchedTerm = resolvedSession.terms.find(
+            (t) =>
+              t.id === rowTermVal ||
+              t.name.toLowerCase() === rowTermVal.toLowerCase() ||
+              (rowTermVal === "1" && t.name.includes("First")) ||
+              (rowTermVal === "2" && t.name.includes("Second")) ||
+              (rowTermVal === "3" && t.name.includes("Third"))
+          );
+          if (matchedTerm) resolvedTermId = matchedTerm.id;
+        }
 
         // Both dryRun and live execution delegate core validation to createStudentCore
         try {
@@ -274,7 +325,8 @@ export const POST = withAuth(
                 guardianPhone,
                 guardianEmail,
                 classId: resolvedClass.id,
-                academicYear: rowAcademicYear,
+                sessionId: resolvedSession.id,
+                termId: resolvedTermId,
                 validateOnly: dryRun,
               },
               txClient

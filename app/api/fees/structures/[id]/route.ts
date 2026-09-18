@@ -52,6 +52,7 @@ export const PATCH = withAuth(
           id,
           schoolId,
         },
+        include: { session: true, term: true },
       });
 
       if (!existingStructure) {
@@ -65,7 +66,9 @@ export const PATCH = withAuth(
         name?: string;
         type?: string;
         amount?: string | number;
+        sessionId?: string;
         academicYear?: string;
+        termId?: string;
         term?: string;
         dueDate?: string;
       };
@@ -73,21 +76,14 @@ export const PATCH = withAuth(
       const name = body.name?.trim();
       const type = body.type?.trim();
       const amountRaw = body.amount !== undefined && body.amount !== null ? String(body.amount).trim() : "";
-      const academicYear = body.academicYear?.trim();
-      const term = body.term !== undefined ? (body.term?.trim() || null) : existingStructure.term;
+      const rawSession = body.sessionId?.trim() || body.academicYear?.trim();
+      const rawTerm = body.termId !== undefined ? (body.termId?.trim() || null) : (body.term !== undefined ? (body.term?.trim() || null) : undefined);
       const dueDateRaw = body.dueDate?.trim();
 
       // --- Required field validation ---
       if (!name) {
         return NextResponse.json(
           { error: "name is required" },
-          { status: 400 }
-        );
-      }
-
-      if (!academicYear) {
-        return NextResponse.json(
-          { error: "academicYear is required" },
           { status: 400 }
         );
       }
@@ -136,17 +132,59 @@ export const PATCH = withAuth(
         dueDate = parsed;
       }
 
+      let sessionId = existingStructure.sessionId;
+      if (rawSession) {
+        const session = await prisma.academicSession.findFirst({
+          where: {
+            schoolId,
+            OR: [{ id: rawSession }, { name: rawSession }],
+          },
+          include: { terms: true },
+        });
+
+        if (!session) {
+          return NextResponse.json(
+            { error: "Academic session not found in this school" },
+            { status: 404 }
+          );
+        }
+        sessionId = session.id;
+      }
+
+      let termId = existingStructure.termId;
+      if (rawTerm !== undefined) {
+        if (rawTerm === null) {
+          termId = null;
+        } else {
+          const session = await prisma.academicSession.findUnique({
+            where: { id: sessionId },
+            include: { terms: true },
+          });
+          const foundTerm = session?.terms.find(
+            (t) =>
+              t.id === rawTerm ||
+              t.name.toLowerCase() === rawTerm.toLowerCase() ||
+              (rawTerm === "1" && t.name.includes("First")) ||
+              (rawTerm === "2" && t.name.includes("Second")) ||
+              (rawTerm === "3" && t.name.includes("Third"))
+          );
+          termId = foundTerm ? foundTerm.id : null;
+        }
+      }
+
       const updatedStructure = await prisma.feeStructure.update({
         where: { id },
         data: {
           name,
           type: type as FeeType,
           amount: amountDecimal,
-          academicYear,
-          term,
+          sessionId,
+          termId,
           dueDate,
         },
         include: {
+          session: true,
+          term: true,
           _count: {
             select: { fees: true },
           },

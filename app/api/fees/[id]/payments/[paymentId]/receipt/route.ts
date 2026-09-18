@@ -54,7 +54,12 @@ export const GET = withAuth(
           fee: {
             include: {
               student: true,
-              feeStructure: true,
+              feeStructure: {
+                include: {
+                  session: true,
+                  term: true,
+                },
+              },
               payments: {
                 where: { deletedAt: null },
                 orderBy: { paidAt: "asc" },
@@ -106,9 +111,9 @@ export const GET = withAuth(
       const enrolledClass = payment.className || "General";
       const feeStructure = payment.fee.feeStructure;
       const feeName = feeStructure.name;
-      const academicPeriod = `${feeStructure.academicYear}${
-        feeStructure.term ? ` - ${feeStructure.term}` : ""
-      }`;
+      const sessionName = payment.academicSessionName || payment.fee?.feeStructure?.session?.name || "N/A";
+      const termName = payment.termName || payment.fee?.feeStructure?.term?.name;
+      const academicPeriod = termName ? `${sessionName} - ${termName}` : sessionName;
       const receiptNumber = payment.receiptNumber;
       const paymentDate = new Date(payment.paidAt).toLocaleDateString("en-US", {
         year: "numeric",

@@ -151,8 +151,10 @@ export const GET = withAuth(
               id: true,
               name: true,
               type: true,
-              academicYear: true,
-              term: true,
+              sessionId: true,
+              termId: true,
+              session: { select: { id: true, name: true } },
+              term: { select: { id: true, name: true } },
             },
           },
         },
@@ -170,10 +172,19 @@ export const GET = withAuth(
         orderBy: { paidAt: "desc" },
       });
 
+      const serializedFee = {
+        ...fee,
+        feeStructure: {
+          ...fee.feeStructure,
+          academicYear: fee.feeStructure.session?.name || "N/A",
+          term: fee.feeStructure.term?.name || null,
+        },
+      };
+
       return NextResponse.json(
         {
           data: {
-            fee,
+            fee: serializedFee,
             payments,
           },
         },
