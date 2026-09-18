@@ -110,12 +110,21 @@ export const POST = withAuth(
         );
       }
 
+      console.log(`[TEACHER IMPORT] Request received | dryRun: ${dryRun} | raw csvText length: ${csvText.length}`);
+      console.log(`[TEACHER IMPORT] Raw csvText dump:\n${JSON.stringify(csvText)}`);
+
       // Parse with PapaParse
       const parseResult = Papa.parse<Record<string, string>>(csvText, {
         header: true,
         skipEmptyLines: "greedy",
         transformHeader: (header) => header.trim(),
       });
+
+      console.log(`[TEACHER IMPORT] PapaParse rows: ${parseResult.data?.length ?? 0}, parseErrors:`, JSON.stringify(parseResult.errors));
+      if (parseResult.data && parseResult.data.length > 0) {
+        console.log(`[TEACHER IMPORT] Row 0 parsed keys:`, JSON.stringify(Object.keys(parseResult.data[0])));
+        console.log(`[TEACHER IMPORT] Row 0 parsed content:`, JSON.stringify(parseResult.data[0]));
+      }
 
       if (parseResult.errors && parseResult.errors.length > 0) {
         const fatalError = parseResult.errors.find(
@@ -179,6 +188,7 @@ export const POST = withAuth(
 
         // Basic presence validation before DB checks
         if (!firstName || !lastName || !email) {
+          console.warn(`[TEACHER IMPORT] Row ${rowNumber} failed presence validation: firstName='${firstName}', lastName='${lastName}', email='${email}'`);
           errors.push({
             rowNumber,
             field: !firstName ? "firstName" : !lastName ? "lastName" : "email",
@@ -189,6 +199,7 @@ export const POST = withAuth(
 
         // In-file duplicate email detection
         if (seenFileEmails.has(email)) {
+          console.log(`[TEACHER IMPORT] Row ${rowNumber} (${fullName}) skipped as in-file duplicate email: '${email}'`);
           skipped.push({
             rowNumber,
             email,
@@ -238,6 +249,16 @@ export const POST = withAuth(
             temporaryPassword: result.generatedPassword,
           });
         } catch (err: any) {
+          console.error(`[TEACHER IMPORT ERROR] Caught error on Row ${rowNumber} (${fullName}):`, {
+            name: err?.name,
+            message: err?.message,
+            statusCode: err?.statusCode,
+            field: err?.field,
+            code: err?.code,
+            meta: err?.meta,
+            stack: err?.stack,
+          });
+
           if (err instanceof TeacherValidationError) {
             if (err.statusCode === 409 && err.field === "email") {
               // Row-level DB collision: caught per-row, recorded as skip
@@ -269,6 +290,8 @@ export const POST = withAuth(
           }
         }
       }
+
+      console.log(`[TEACHER IMPORT COMPLETE] Summary: created=${created.length}, skipped=${skipped.length}, errors=${errors.length}`);
 
       return NextResponse.json(
         {
