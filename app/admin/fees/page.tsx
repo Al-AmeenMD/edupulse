@@ -35,8 +35,11 @@ interface FeeStructureItem {
   name: string;
   type: FeeType;
   amount: number | string;
-  academicYear: string;
-  term?: string | null;
+  sessionId?: string;
+  termId?: string | null;
+  session?: { id: string; name: string; isCurrent?: boolean } | null;
+  term?: { id: string; name: string; isCurrent?: boolean } | string | null;
+  academicYear?: string;
   dueDate: string;
   _count?: {
     fees?: number;
@@ -47,8 +50,11 @@ interface FeePackageItem {
   id: string;
   name: string;
   description?: string | null;
-  academicYear: string;
-  term?: string | null;
+  sessionId?: string;
+  termId?: string | null;
+  session?: { id: string; name: string; isCurrent?: boolean } | null;
+  term?: { id: string; name: string; isCurrent?: boolean } | string | null;
+  academicYear?: string;
   totalAmount: string;
   structuresCount: number;
   createdAt: string;
@@ -61,11 +67,28 @@ interface FeePackageItem {
       name: string;
       type: FeeType;
       amount: string;
-      academicYear: string;
-      term?: string | null;
+      sessionId?: string;
+      termId?: string | null;
+      session?: { id: string; name: string } | null;
+      term?: { id: string; name: string } | string | null;
+      academicYear?: string;
       dueDate: string;
     } | null;
   }>;
+}
+
+function getStructureSessionName(s: any): string {
+  if (!s) return "";
+  if (s.session && typeof s.session === "object" && s.session.name) return s.session.name;
+  if (typeof s.academicYear === "string") return s.academicYear;
+  return "";
+}
+
+function getStructureTermName(s: any): string {
+  if (!s) return "";
+  if (s.term && typeof s.term === "object" && s.term.name) return s.term.name;
+  if (typeof s.term === "string") return s.term;
+  return "";
 }
 
 interface PackageBalanceComponent {
@@ -129,8 +152,11 @@ interface StudentFeeItem {
     id: string;
     name: string;
     type: FeeType;
-    academicYear: string;
-    term?: string | null;
+    sessionId?: string;
+    termId?: string | null;
+    session?: { id: string; name: string } | null;
+    term?: { id: string; name: string } | string | null;
+    academicYear?: string;
   };
   payments?: PaymentItem[];
 }
@@ -309,65 +335,102 @@ export default function FeesManagementPage() {
 
   // Derived distinct Academic Years (Sessions) across all fee structures
   const availableStructureSessions = useMemo(() => {
+    if (academicSessions.length > 0) {
+      return academicSessions.map((s) => s.name);
+    }
     const set = new Set<string>();
     allStructuresForFilters.forEach((s) => {
-      if (s.academicYear?.trim()) set.add(s.academicYear.trim());
+      const name = getStructureSessionName(s);
+      if (name?.trim()) set.add(name.trim());
     });
     return Array.from(set).sort().reverse();
-  }, [allStructuresForFilters]);
+  }, [academicSessions, allStructuresForFilters]);
 
   // Derived distinct Terms for Tab 1 (Fee Structures) based on selected structure session
   const availableStructureTerms = useMemo(() => {
+    if (structureSessionFilter !== "ALL") {
+      const matchedSess = academicSessions.find(
+        (s) => s.id === structureSessionFilter || s.name === structureSessionFilter
+      );
+      if (matchedSess && matchedSess.terms?.length > 0) {
+        return matchedSess.terms.map((t) => t.name);
+      }
+    }
     const set = new Set<string>();
     const filtered = structureSessionFilter === "ALL"
       ? allStructuresForFilters
-      : allStructuresForFilters.filter((s) => s.academicYear === structureSessionFilter);
+      : allStructuresForFilters.filter((s) => getStructureSessionName(s) === structureSessionFilter || s.sessionId === structureSessionFilter);
     filtered.forEach((s) => {
-      if (s.term?.trim()) set.add(s.term.trim());
+      const termName = getStructureTermName(s);
+      if (termName?.trim()) set.add(termName.trim());
     });
     return Array.from(set).sort();
-  }, [allStructuresForFilters, structureSessionFilter]);
+  }, [academicSessions, allStructuresForFilters, structureSessionFilter]);
 
   // Derived distinct Terms for Tab 2 (Student Fees) based on selected student fee session
   const availableStudentFeeTerms = useMemo(() => {
+    if (studentFeeSessionFilter !== "ALL") {
+      const matchedSess = academicSessions.find(
+        (s) => s.id === studentFeeSessionFilter || s.name === studentFeeSessionFilter
+      );
+      if (matchedSess && matchedSess.terms?.length > 0) {
+        return matchedSess.terms.map((t) => t.name);
+      }
+    }
     const set = new Set<string>();
     const filtered = studentFeeSessionFilter === "ALL"
       ? allStructuresForFilters
-      : allStructuresForFilters.filter((s) => s.academicYear === studentFeeSessionFilter);
+      : allStructuresForFilters.filter((s) => getStructureSessionName(s) === studentFeeSessionFilter || s.sessionId === studentFeeSessionFilter);
     filtered.forEach((s) => {
-      if (s.term?.trim()) set.add(s.term.trim());
+      const termName = getStructureTermName(s);
+      if (termName?.trim()) set.add(termName.trim());
     });
     return Array.from(set).sort();
-  }, [allStructuresForFilters, studentFeeSessionFilter]);
+  }, [academicSessions, allStructuresForFilters, studentFeeSessionFilter]);
 
   // Derived distinct Sessions for Tab 3 (Fee Packages)
   const availablePackageSessions = useMemo(() => {
+    if (academicSessions.length > 0) {
+      return academicSessions.map((s) => s.name);
+    }
     const set = new Set<string>();
     packages.forEach((p) => {
-      if (p.academicYear?.trim()) set.add(p.academicYear.trim());
+      const name = getStructureSessionName(p);
+      if (name?.trim()) set.add(name.trim());
     });
     allStructuresForFilters.forEach((s) => {
-      if (s.academicYear?.trim()) set.add(s.academicYear.trim());
+      const name = getStructureSessionName(s);
+      if (name?.trim()) set.add(name.trim());
     });
     return Array.from(set).sort();
-  }, [packages, allStructuresForFilters]);
+  }, [academicSessions, packages, allStructuresForFilters]);
 
   // Derived distinct Terms for Tab 3 (Fee Packages)
   const availablePackageTerms = useMemo(() => {
+    if (packageSessionFilter !== "ALL") {
+      const matchedSess = academicSessions.find(
+        (s) => s.id === packageSessionFilter || s.name === packageSessionFilter
+      );
+      if (matchedSess && matchedSess.terms?.length > 0) {
+        return matchedSess.terms.map((t) => t.name);
+      }
+    }
     const set = new Set<string>();
     const filtered = packageSessionFilter === "ALL"
       ? packages
-      : packages.filter((p) => p.academicYear === packageSessionFilter);
+      : packages.filter((p) => getStructureSessionName(p) === packageSessionFilter || p.sessionId === packageSessionFilter);
     filtered.forEach((p) => {
-      if (p.term?.trim()) set.add(p.term.trim());
+      const termName = getStructureTermName(p);
+      if (termName?.trim()) set.add(termName.trim());
     });
     allStructuresForFilters
-      .filter((s) => packageSessionFilter === "ALL" || s.academicYear === packageSessionFilter)
+      .filter((s) => packageSessionFilter === "ALL" || getStructureSessionName(s) === packageSessionFilter || s.sessionId === packageSessionFilter)
       .forEach((s) => {
-        if (s.term?.trim()) set.add(s.term.trim());
+        const termName = getStructureTermName(s);
+        if (termName?.trim()) set.add(termName.trim());
       });
     return Array.from(set).sort();
-  }, [packages, allStructuresForFilters, packageSessionFilter]);
+  }, [academicSessions, packages, allStructuresForFilters, packageSessionFilter]);
 
   // Derived distinct Admission Levels for filters & modals (FIX-016 & FIX-009)
   const availableLevels = useMemo(() => {
@@ -550,16 +613,18 @@ export default function FeesManagementPage() {
     setSuccessMessage("");
     setEditingStructure(st);
     const amountStr = String(st.amount);
-    const matchedSession = academicSessions.find((s) => s.name === st.academicYear);
-    const matchedTerm = matchedSession?.terms.find((t) => t.name === st.term);
+    const sessName = getStructureSessionName(st);
+    const termName = getStructureTermName(st);
+    const matchedSession = academicSessions.find((s) => s.id === st.sessionId || s.name === sessName);
+    const matchedTerm = matchedSession?.terms.find((t) => t.id === st.termId || t.name === termName);
     setEditStructureForm({
       name: st.name,
       type: st.type,
       amount: amountStr,
-      sessionId: (st as any).sessionId || matchedSession?.id || "",
-      academicYear: st.academicYear,
-      termId: (st as any).termId || matchedTerm?.id || "",
-      term: st.term || "",
+      sessionId: st.sessionId || matchedSession?.id || "",
+      academicYear: sessName,
+      termId: st.termId || matchedTerm?.id || "",
+      term: termName,
       dueDate: st.dueDate ? st.dueDate.split("T")[0] : "",
     });
     setEditStructureDisplayAmount(formatDisplayAmount(amountStr));
@@ -913,12 +978,15 @@ export default function FeesManagementPage() {
     if (session === "ALL") {
       nextTerm = "ALL";
     } else {
-      const validTerms = Array.from(new Set(
-        allStructuresForFilters
-          .filter((s) => s.academicYear === session)
-          .map((s) => s.term?.trim())
-          .filter(Boolean)
-      ));
+      const matchedSess = academicSessions.find((s) => s.id === session || s.name === session);
+      const validTerms = matchedSess && matchedSess.terms?.length > 0
+        ? matchedSess.terms.map((t) => t.name)
+        : Array.from(new Set(
+            allStructuresForFilters
+              .filter((s) => getStructureSessionName(s) === session || s.sessionId === session)
+              .map((s) => getStructureTermName(s)?.trim())
+              .filter(Boolean)
+          ));
       if (!validTerms.includes(packageTermFilter)) {
         nextTerm = "ALL";
       }
@@ -947,12 +1015,15 @@ export default function FeesManagementPage() {
     if (session === "ALL") {
       nextTerm = "ALL";
     } else {
-      const validTerms = Array.from(new Set(
-        allStructuresForFilters
-          .filter((s) => s.academicYear === session)
-          .map((s) => s.term?.trim())
-          .filter(Boolean)
-      ));
+      const matchedSess = academicSessions.find((s) => s.id === session || s.name === session);
+      const validTerms = matchedSess && matchedSess.terms?.length > 0
+        ? matchedSess.terms.map((t) => t.name)
+        : Array.from(new Set(
+            allStructuresForFilters
+              .filter((s) => getStructureSessionName(s) === session || s.sessionId === session)
+              .map((s) => getStructureTermName(s)?.trim())
+              .filter(Boolean)
+          ));
       if (!validTerms.includes(structureTermFilter)) {
         nextTerm = "ALL";
       }
@@ -989,12 +1060,15 @@ export default function FeesManagementPage() {
     if (session === "ALL") {
       nextTerm = "ALL";
     } else {
-      const validTerms = Array.from(new Set(
-        allStructuresForFilters
-          .filter((s) => s.academicYear === session)
-          .map((s) => s.term?.trim())
-          .filter(Boolean)
-      ));
+      const matchedSess = academicSessions.find((s) => s.id === session || s.name === session);
+      const validTerms = matchedSess && matchedSess.terms?.length > 0
+        ? matchedSess.terms.map((t) => t.name)
+        : Array.from(new Set(
+            allStructuresForFilters
+              .filter((s) => getStructureSessionName(s) === session || s.sessionId === session)
+              .map((s) => getStructureTermName(s)?.trim())
+              .filter(Boolean)
+          ));
       if (!validTerms.includes(studentFeeTermFilter)) {
         nextTerm = "ALL";
       }
@@ -1503,15 +1577,17 @@ export default function FeesManagementPage() {
   function handleOpenEditPackage(pkg: FeePackageItem) {
     setError("");
     setEditingPackage(pkg);
-    const matchedSession = academicSessions.find((s) => s.name === pkg.academicYear);
-    const matchedTerm = matchedSession?.terms.find((t) => t.name === pkg.term);
+    const sessName = getStructureSessionName(pkg);
+    const termName = getStructureTermName(pkg);
+    const matchedSession = academicSessions.find((s) => s.id === pkg.sessionId || s.name === sessName);
+    const matchedTerm = matchedSession?.terms.find((t) => t.id === pkg.termId || t.name === termName);
     setEditPackageForm({
       name: pkg.name,
       description: pkg.description || "",
-      sessionId: (pkg as any).sessionId || matchedSession?.id || "",
-      academicYear: pkg.academicYear,
-      termId: (pkg as any).termId || matchedTerm?.id || "",
-      term: pkg.term || "First Term",
+      sessionId: pkg.sessionId || matchedSession?.id || "",
+      academicYear: sessName,
+      termId: pkg.termId || matchedTerm?.id || "",
+      term: termName || "First Term",
       feeStructureIds: pkg.items.map((it) => it.feeStructureId),
     });
   }
@@ -2422,7 +2498,7 @@ export default function FeesManagementPage() {
                             {formatNaira(st.amount)}
                           </td>
                           <td className="px-6 py-4 text-xs text-slate-600">
-                            {st.academicYear} {st.term ? `(${st.term})` : ""}
+                            {getStructureSessionName(st)} {getStructureTermName(st) ? `(${getStructureTermName(st)})` : ""}
                           </td>
                           <td className="px-6 py-4 text-xs text-slate-600 font-mono">
                             {new Date(st.dueDate).toLocaleDateString()}
@@ -2626,7 +2702,7 @@ export default function FeesManagementPage() {
                           )}
                         </td>
                         <td className="px-6 py-4 text-xs font-semibold text-slate-700">
-                          {pkg.academicYear} {pkg.term ? `(${pkg.term})` : ""}
+                          {getStructureSessionName(pkg)} {getStructureTermName(pkg) ? `(${getStructureTermName(pkg)})` : ""}
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex flex-wrap gap-1.5 max-w-md">
@@ -2899,7 +2975,7 @@ export default function FeesManagementPage() {
                           <td className="px-6 py-4 text-xs font-medium text-slate-700">
                             <div>{fee.feeStructure.name}</div>
                             <div className="text-[11px] text-slate-400 mt-0.5">
-                              {fee.feeStructure.academicYear} {fee.feeStructure.term ? `(${fee.feeStructure.term})` : ""}
+                              {getStructureSessionName(fee.feeStructure)} {getStructureTermName(fee.feeStructure) ? `(${getStructureTermName(fee.feeStructure)})` : ""}
                             </div>
                           </td>
                           <td className="px-6 py-4 font-bold text-slate-900 tabular-nums">
@@ -4105,7 +4181,7 @@ export default function FeesManagementPage() {
                     <div key={s.id} className="py-1.5 flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
                         <span className="font-medium text-slate-800">{s.name}</span>
-                        <span className="text-[10px] text-slate-400">({s.academicYear})</span>
+                        <span className="text-[10px] text-slate-400">({getStructureSessionName(s)})</span>
                       </div>
                       <span className="font-semibold text-slate-700 tabular-nums">{formatNaira(s.amount)}</span>
                     </div>
@@ -4397,11 +4473,15 @@ export default function FeesManagementPage() {
                     </div>
                   ) : (
                     allStructuresForFilters
-                      .filter(
-                        (s) =>
-                          s.academicYear === createPackageForm.academicYear &&
-                          (!createPackageForm.term || !s.term || s.term === createPackageForm.term)
-                      )
+                      .filter((s) => {
+                        const sSessName = getStructureSessionName(s);
+                        const sTermName = getStructureTermName(s);
+                        const pkgSess = createPackageForm.sessionId || createPackageForm.academicYear;
+                        const pkgTerm = createPackageForm.termId || createPackageForm.term;
+                        const sessMatches = !pkgSess || (s.sessionId && s.sessionId === createPackageForm.sessionId) || (sSessName === createPackageForm.academicYear);
+                        const termMatches = !pkgTerm || !sTermName || (s.termId && s.termId === createPackageForm.termId) || (sTermName === createPackageForm.term);
+                        return sessMatches && termMatches;
+                      })
                       .map((st) => {
                         const checked = createPackageForm.feeStructureIds.includes(st.id);
                         return (
@@ -4594,11 +4674,15 @@ export default function FeesManagementPage() {
 
                 <div className="border border-slate-200 rounded-xl max-h-48 overflow-y-auto p-2 divide-y divide-slate-100 bg-slate-50/50">
                   {allStructuresForFilters
-                    .filter(
-                      (s) =>
-                        s.academicYear === editPackageForm.academicYear &&
-                        (!editPackageForm.term || !s.term || s.term === editPackageForm.term)
-                    )
+                    .filter((s) => {
+                      const sSessName = getStructureSessionName(s);
+                      const sTermName = getStructureTermName(s);
+                      const pkgSess = editPackageForm.sessionId || editPackageForm.academicYear;
+                      const pkgTerm = editPackageForm.termId || editPackageForm.term;
+                      const sessMatches = !pkgSess || (s.sessionId && s.sessionId === editPackageForm.sessionId) || (sSessName === editPackageForm.academicYear);
+                      const termMatches = !pkgTerm || !sTermName || (s.termId && s.termId === editPackageForm.termId) || (sTermName === editPackageForm.term);
+                      return sessMatches && termMatches;
+                    })
                     .map((st) => {
                       const checked = editPackageForm.feeStructureIds.includes(st.id);
                       return (
@@ -4902,7 +4986,7 @@ export default function FeesManagementPage() {
               <div>
                 <h3 className="font-bold text-slate-900 text-base">Record Package Payment</h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Package: <span className="font-bold text-slate-800">"{payingPackage.name}"</span> ({payingPackage.academicYear} {payingPackage.term ? "• " + payingPackage.term : ""})
+                  Package: <span className="font-bold text-slate-800">"{payingPackage.name}"</span> ({getStructureSessionName(payingPackage)} {getStructureTermName(payingPackage) ? "• " + getStructureTermName(payingPackage) : ""})
                 </p>
               </div>
               <button
@@ -5240,7 +5324,7 @@ export default function FeesManagementPage() {
               <div>
                 <h3 className="font-bold text-slate-900 text-base">Package Payment History</h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Package: <span className="font-bold text-slate-800">"{historyPackage.name}"</span> ({historyPackage.academicYear} {historyPackage.term ? "• " + historyPackage.term : ""})
+                  Package: <span className="font-bold text-slate-800">"{historyPackage.name}"</span> ({getStructureSessionName(historyPackage)} {getStructureTermName(historyPackage) ? "• " + getStructureTermName(historyPackage) : ""})
                 </p>
               </div>
               <button

@@ -34,7 +34,15 @@ export const GET = withAuth(
       }
 
       if (rawTerm && rawTerm !== "ALL") {
-        whereClause.termId = rawTerm;
+        whereClause.AND = [
+          ...(Array.isArray(whereClause.AND) ? whereClause.AND : whereClause.AND ? [whereClause.AND] : []),
+          {
+            OR: [
+              { termId: rawTerm },
+              { term: { name: rawTerm } },
+            ],
+          },
+        ];
       }
 
       const packages = await prisma.feePackage.findMany({

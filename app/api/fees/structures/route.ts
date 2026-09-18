@@ -181,7 +181,15 @@ export const GET = withAuth(
       }
 
       if (termId && termId !== "ALL") {
-        where.termId = termId;
+        where.AND = [
+          ...(Array.isArray(where.AND) ? where.AND : []),
+          {
+            OR: [
+              { termId },
+              { term: { name: termId } },
+            ],
+          },
+        ];
       }
 
       const feeStructures = await prisma.feeStructure.findMany({
