@@ -1589,6 +1589,59 @@ export default function TeachersPage() {
                     </div>
                   </div>
 
+                  {/* Errors Section in Step 3 */}
+                  {importResult.errors.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-bold text-rose-800 uppercase tracking-wider flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-rose-600"></span>
+                          <span>Import Errors ({importResult.errors.length})</span>
+                        </p>
+                        <span className="text-[11px] text-slate-500">These rows failed during import</span>
+                      </div>
+                      <div className="max-h-36 overflow-y-auto border border-rose-200 rounded-xl bg-rose-50/50 divide-y divide-rose-100 text-xs">
+                        {importResult.errors.map((err, idx) => (
+                          <div key={idx} className="p-2.5 flex items-start gap-2">
+                            <span className="font-mono font-bold text-rose-900 shrink-0 bg-rose-100 px-1.5 py-0.5 rounded">
+                              Row {err.rowNumber}
+                            </span>
+                            <span className="text-rose-800">
+                              {err.field && <strong className="font-semibold">{err.field}: </strong>}
+                              {err.message}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Skipped Duplicates Section in Step 3 */}
+                  {importResult.skipped.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-bold text-amber-800 uppercase tracking-wider flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-amber-600"></span>
+                          <span>Duplicates Skipped ({importResult.skipped.length})</span>
+                        </p>
+                        <span className="text-[11px] text-slate-500">Omitted to prevent duplicates</span>
+                      </div>
+                      <div className="max-h-32 overflow-y-auto border border-amber-200 rounded-xl bg-amber-50/50 divide-y divide-amber-100 text-xs">
+                        {importResult.skipped.map((sk, idx) => (
+                          <div key={idx} className="p-2.5 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-bold text-amber-900 bg-amber-100 px-1.5 py-0.5 rounded">
+                                Row {sk.rowNumber}
+                              </span>
+                              <span className="font-semibold text-slate-800">{sk.name}</span>
+                              <span className="font-mono text-slate-500">({sk.email})</span>
+                            </div>
+                            <span className="text-[11px] text-amber-700 font-medium">{sk.reason}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Credentials Section */}
                   {importResult.created.length > 0 && (
                     <div className="space-y-2.5">
